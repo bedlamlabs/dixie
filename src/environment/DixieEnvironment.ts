@@ -33,6 +33,7 @@ import { PointerEvent } from '../events/PointerEvent';
 import { MutationObserver } from '../observers/MutationObserver';
 import { ResizeObserver } from '../observers/ResizeObserver';
 import { IntersectionObserver } from '../observers/IntersectionObserver';
+import { EventTarget } from '../events/EventTarget';
 import { Element } from '../nodes/Element';
 import { Node } from '../nodes/Node';
 import { Text } from '../nodes/Text';
@@ -119,6 +120,7 @@ const GLOBAL_KEYS = [
   'MutationObserver',
   'ResizeObserver',
   'IntersectionObserver',
+  'EventTarget',
   'getComputedStyle',
   'matchMedia',
   ...HTML_ELEMENT_NAMES,
@@ -135,6 +137,7 @@ const NOT_SET = Symbol('NOT_SET');
  * instance-specific values are patched into the object inside installGlobals.
  */
 const STATIC_GLOBALS: Readonly<Record<string, unknown>> = Object.freeze({
+  EventTarget,
   Event,
   CustomEvent,
   UIEvent,

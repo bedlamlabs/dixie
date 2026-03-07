@@ -15,6 +15,8 @@ import { Screen } from './Screen';
 import { EventSourceStub } from '../network/sse';
 import { WebSocketStub } from '../network/websocket';
 
+export { EventTarget };
+
 export interface WindowOptions {
   url?: string;
   innerWidth?: number;
@@ -174,14 +176,32 @@ export class Window extends EventTarget {
     return Buffer.from(data, 'binary').toString('base64');
   }
 
-  // ── Animation frames ──────────────────────────────────────────────
+  // ── Timers (delegated to global — overridden by DixieEnvironment) ──
 
-  requestAnimationFrame(callback: (time: number) => void): ReturnType<typeof setTimeout> {
-    return setTimeout(() => callback(Date.now()), 16);
+  setTimeout(fn: (...args: any[]) => void, delay?: number, ...args: any[]): ReturnType<typeof globalThis.setTimeout> {
+    return globalThis.setTimeout(fn, delay, ...args);
   }
 
-  cancelAnimationFrame(id: ReturnType<typeof setTimeout>): void {
-    clearTimeout(id);
+  clearTimeout(id: ReturnType<typeof globalThis.setTimeout>): void {
+    globalThis.clearTimeout(id);
+  }
+
+  setInterval(fn: (...args: any[]) => void, delay?: number, ...args: any[]): ReturnType<typeof globalThis.setInterval> {
+    return globalThis.setInterval(fn, delay, ...args);
+  }
+
+  clearInterval(id: ReturnType<typeof globalThis.setInterval>): void {
+    globalThis.clearInterval(id);
+  }
+
+  // ── Animation frames ──────────────────────────────────────────────
+
+  requestAnimationFrame(callback: (time: number) => void): ReturnType<typeof globalThis.setTimeout> {
+    return globalThis.setTimeout(() => callback(Date.now()), 16);
+  }
+
+  cancelAnimationFrame(id: ReturnType<typeof globalThis.setTimeout>): void {
+    globalThis.clearTimeout(id);
   }
 
   // ── Selection ─────────────────────────────────────────────────────
@@ -238,6 +258,10 @@ export class Window extends EventTarget {
 
   readonly EventSource = EventSourceStub;
   readonly WebSocket = WebSocketStub;
+
+  // ── DOM constructors exposed on window ─────────────────────────
+
+  readonly EventTarget = EventTarget;
 
   // ── Structured clone ──────────────────────────────────────────────
 

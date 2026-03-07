@@ -20,6 +20,12 @@ export class Document extends Node {
   private _head: Element;
   private _body: Element;
 
+  /** Points to the Window object when running inside a DixieEnvironment. */
+  defaultView: any = null;
+
+  /** Document visibility state. */
+  readonly visibilityState: string = 'visible';
+
   /** Fast O(1) id→element index. Updated by Element.setAttribute/removeAttribute. */
   _idIndex: Map<string, Element> = new Map();
 
@@ -108,6 +114,39 @@ export class Document extends Node {
     const semiIndex = rest.indexOf(';');
     const val = semiIndex === -1 ? rest.trim() : rest.slice(0, semiIndex).trim();
     this._cookies.set(name, val);
+  }
+
+  // ── activeElement ──────────────────────────────────────────────
+
+  get activeElement(): Element | null {
+    return this._body;
+  }
+
+  // ── getSelection ──────────────────────────────────────────────
+
+  getSelection(): any {
+    return {
+      anchorNode: null,
+      anchorOffset: 0,
+      focusNode: null,
+      focusOffset: 0,
+      isCollapsed: true,
+      rangeCount: 0,
+      type: 'None',
+      addRange() {},
+      removeAllRanges() {},
+      removeRange() {},
+      collapse() {},
+      collapseToStart() {},
+      collapseToEnd() {},
+      extend() {},
+      setBaseAndExtent() {},
+      selectAllChildren() {},
+      deleteFromDocument() {},
+      getRangeAt() { return null; },
+      containsNode() { return false; },
+      toString() { return ''; },
+    };
   }
 
   // ── createRange ─────────────────────────────────────────────────

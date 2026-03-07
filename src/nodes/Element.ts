@@ -61,6 +61,56 @@ export class Element extends Node {
     return [this.getBoundingClientRect()];
   }
 
+  // ── Focus / interaction stubs ──────────────────────────────────────
+
+  focus(_options?: any): void {}
+  blur(): void {}
+  click(): void {}
+  scrollIntoView(_arg?: any): void {}
+
+  // ── Select element support ─────────────────────────────────────────
+
+  get options(): any[] {
+    if (this.tagName !== 'SELECT') return [];
+    const opts: Element[] = [];
+    for (const child of this._children) {
+      if (child.nodeType === Node.ELEMENT_NODE && (child as Element).tagName === 'OPTION') {
+        opts.push(child as Element);
+      }
+    }
+    return opts;
+  }
+
+  get selectedIndex(): number {
+    return -1;
+  }
+
+  set selectedIndex(_value: number) {}
+
+  get selected(): boolean {
+    return false;
+  }
+
+  set selected(_value: boolean) {}
+
+  get disabled(): boolean {
+    return this.hasAttribute('disabled');
+  }
+
+  set disabled(value: boolean) {
+    if (value) {
+      this.setAttribute('disabled', '');
+    } else {
+      this.removeAttribute('disabled');
+    }
+  }
+
+  get defaultSelected(): boolean {
+    return false;
+  }
+
+  set defaultSelected(_value: boolean) {}
+
   // ── Attributes ──────────────────────────────────────────────────────
 
   /**
