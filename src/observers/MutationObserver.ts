@@ -260,6 +260,16 @@ export function flushMutations(): void {
 }
 
 /**
+ * Returns true when at least one MutationObserver is actively observing.
+ *
+ * The DOM layer uses this to skip mutation record construction on the hot
+ * path when no observer is registered.
+ */
+export function hasMutationObservers(): boolean {
+  return _registry.size > 0;
+}
+
+/**
  * clearMutationRegistry — remove all observers from the global registry.
  *
  * Useful for test cleanup to prevent cross-test contamination.

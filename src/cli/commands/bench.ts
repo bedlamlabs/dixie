@@ -6,7 +6,7 @@ export interface BenchmarkResult {
   elementCount: number;
 }
 
-function computeStats(values: number[]) {
+export function computeStats(values: number[]) {
   if (values.length === 0) return { median: 0, mean: 0, p95: 0, min: 0, max: 0 };
   const sorted = [...values].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];

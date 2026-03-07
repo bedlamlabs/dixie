@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Node } from '../src/nodes/Node';
 import { Element } from '../src/nodes/Element';
+import { Text } from '../src/nodes/Text';
+import { Document } from '../src/nodes/Document';
 import { MutationRecord } from '../src/observers/MutationRecord';
 import {
   MutationObserver,
@@ -267,6 +269,76 @@ describe('MutationObserver', () => {
       flushMutations();
 
       expect(callback.mock.calls[0][1]).toBe(observer);
+    });
+
+    it('observes appendChild without manual triggerMutation', async () => {
+      const doc = new Document();
+      const target = doc.createElement('div');
+      doc.body.appendChild(target);
+      const callback = vi.fn();
+      const observer = new MutationObserver(callback);
+
+      observer.observe(target, { childList: true });
+      target.appendChild(doc.createElement('span'));
+      await Promise.resolve();
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const records = callback.mock.calls[0][0];
+      expect(records).toHaveLength(1);
+      expect(records[0].addedNodes).toHaveLength(1);
+      expect(records[0].addedNodes[0].nodeName).toBe('SPAN');
+    });
+
+    it('observes attribute changes without manual triggerMutation', async () => {
+      const target = new Element('div');
+      const callback = vi.fn();
+      const observer = new MutationObserver(callback);
+
+      observer.observe(target, { attributes: true, attributeOldValue: true });
+      target.setAttribute('data-state', 'warm');
+      target.setAttribute('data-state', 'cool');
+      await Promise.resolve();
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const records = callback.mock.calls[0][0];
+      expect(records).toHaveLength(2);
+      expect(records[1].attributeName).toBe('data-state');
+      expect(records[1].oldValue).toBe('warm');
+    });
+
+    it('observes characterData changes without manual triggerMutation', async () => {
+      const text = new Text('before');
+      const callback = vi.fn();
+      const observer = new MutationObserver(callback);
+
+      observer.observe(text, { characterData: true, characterDataOldValue: true });
+      text.data = 'after';
+      await Promise.resolve();
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const records = callback.mock.calls[0][0];
+      expect(records[0].type).toBe('characterData');
+      expect(records[0].oldValue).toBe('before');
+    });
+
+    it('batches innerHTML replacement into one childList record', async () => {
+      const doc = new Document();
+      const target = doc.createElement('div');
+      doc.body.appendChild(target);
+      target.innerHTML = '<span>old</span><span>old-2</span>';
+
+      const callback = vi.fn();
+      const observer = new MutationObserver(callback);
+      observer.observe(target, { childList: true });
+
+      target.innerHTML = '<button>new</button><button>new-2</button>';
+      await Promise.resolve();
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const records = callback.mock.calls[0][0];
+      expect(records).toHaveLength(1);
+      expect(records[0].removedNodes).toHaveLength(2);
+      expect(records[0].addedNodes).toHaveLength(2);
     });
   });
 

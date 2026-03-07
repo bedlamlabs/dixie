@@ -14,6 +14,9 @@ export interface ParsedArgs {
   noColor: boolean;
   config?: string;
   selectorStrategy: 'css' | 'testId' | 'role' | 'label';
+  snapshotOut?: string;
+  harFile?: string;
+  samples: number;
   rest: string[];
 }
 

@@ -70,6 +70,37 @@ export class MockFetch {
     this._maxRecordedRequests = options?.maxRecordedRequests ?? 10000;
   }
 
+  // ─── HAR loading ────────────────────────────────────────────────
+
+  static loadFromHar(entries: Array<{ request: { method: string; url: string }; response: { status: number; content: { text: string; mimeType: string } } }>): MockFetch {
+    const mock = new MockFetch();
+
+    for (const entry of entries) {
+      // Match by URL path only (strip query params)
+      let urlPath: string;
+      try {
+        const parsed = new URL(entry.request.url);
+        urlPath = parsed.origin + parsed.pathname;
+      } catch {
+        urlPath = entry.request.url.split('?')[0];
+      }
+
+      let body: any;
+      try {
+        body = JSON.parse(entry.response.content.text);
+      } catch {
+        body = entry.response.content.text;
+      }
+
+      mock.register(urlPath, {
+        status: entry.response.status,
+        body,
+      });
+    }
+
+    return mock;
+  }
+
   // ─── Response registry ───────────────────────────────────────────
 
   register(urlPattern: string, response: MockResponseConfig | MockResponseHandler): void {

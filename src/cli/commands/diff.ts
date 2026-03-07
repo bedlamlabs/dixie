@@ -1,3 +1,32 @@
+import type { ParsedArgs, CommandResult } from '../types';
+import * as fs from 'node:fs';
+
+export async function execute(args: ParsedArgs): Promise<CommandResult> {
+  // Expect two positional args: before.json and after.json
+  const beforePath = args.url;
+  const afterPath = args.selector ?? args.rest[0];
+
+  if (!beforePath || !afterPath) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'MISSING_ARGS', message: 'diff requires two snapshot file paths' }],
+    };
+  }
+
+  try {
+    const before = JSON.parse(fs.readFileSync(beforePath, 'utf-8'));
+    const after = JSON.parse(fs.readFileSync(afterPath, 'utf-8'));
+    const result = diffSnapshots(before, after);
+
+    return { exitCode: 0, data: result };
+  } catch (err: any) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'DIFF_ERROR', message: err.message }],
+    };
+  }
+}
+
 export interface DiffChange {
   type: 'added' | 'removed' | 'changed';
   scope?: string;

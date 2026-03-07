@@ -207,32 +207,29 @@ export class TokenAcquisition {
     credentials: { email: string; password: string },
     timeout: number,
   ): Promise<string> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    try {
-      const response = await fetch(url, {
+    const response = await Promise.race([
+      fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
-        signal: controller.signal,
-      });
+      }),
+      new Promise<Response>((_, reject) => {
+        setTimeout(() => reject(new Error(`Login request timed out after ${timeout}ms`)), timeout);
+      }),
+    ]);
 
-      if (!response.ok) {
-        throw new Error(`Login failed: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json() as Record<string, unknown>;
-
-      // Look for token in common response shapes
-      const token = (data.token ?? data.accessToken ?? data.access_token) as string | undefined;
-      if (!token) {
-        throw new Error('No token found in login response');
-      }
-
-      return token;
-    } finally {
-      clearTimeout(timeoutId);
+    if (!response.ok) {
+      throw new Error(`Login failed: ${response.status} ${response.statusText}`);
     }
+
+    const data = await response.json() as Record<string, unknown>;
+
+    // Look for token in common response shapes
+    const token = (data.token ?? data.accessToken ?? data.access_token) as string | undefined;
+    if (!token) {
+      throw new Error('No token found in login response');
+    }
+
+    return token;
   }
 }

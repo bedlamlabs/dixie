@@ -3,8 +3,16 @@ import { Element } from './Element';
 import { Text } from './Text';
 import { Comment } from './Comment';
 import { DocumentFragment } from './DocumentFragment';
+import { HTMLInputElement } from './HTMLInputElement';
+import { HTMLSelectElement } from './HTMLSelectElement';
+import { HTMLTextAreaElement } from './HTMLTextAreaElement';
+import { HTMLFormElement } from './HTMLFormElement';
+import { HTMLOptionElement } from './HTMLOptionElement';
+import { HTMLButtonElement } from './HTMLButtonElement';
+import { HTMLLabelElement } from './HTMLLabelElement';
 import { HTMLCollection } from '../collections/HTMLCollection';
 import { NodeList } from './NodeList';
+import { _getElementsByClassName, _getElementsByTagName } from './TreeWalk';
 import { parseSelector, querySelectorAllElements, querySelectorFirstElement, _fastQueryFirst, _fastQueryAll } from '../selectors';
 
 /**
@@ -118,8 +126,10 @@ export class Document extends Node {
 
   // ── activeElement ──────────────────────────────────────────────
 
+  _activeElement: Element | null = null;
+
   get activeElement(): Element | null {
-    return this._body;
+    return this._activeElement ?? this._body;
   }
 
   // ── getSelection ──────────────────────────────────────────────
@@ -196,7 +206,36 @@ export class Document extends Node {
   // ── Factory methods ────────────────────────────────────────────────
 
   createElement(tagName: string): Element {
-    const el = new Element(tagName);
+    const lower = tagName.toLowerCase();
+    let el: Element;
+
+    switch (lower) {
+      case 'input':
+        el = new HTMLInputElement();
+        break;
+      case 'select':
+        el = new HTMLSelectElement();
+        break;
+      case 'textarea':
+        el = new HTMLTextAreaElement();
+        break;
+      case 'form':
+        el = new HTMLFormElement();
+        break;
+      case 'option':
+        el = new HTMLOptionElement();
+        break;
+      case 'button':
+        el = new HTMLButtonElement();
+        break;
+      case 'label':
+        el = new HTMLLabelElement();
+        break;
+      default:
+        el = new Element(lower);
+        break;
+    }
+
     el.ownerDocument = this;
     return el;
   }
@@ -305,55 +344,5 @@ export class Document extends Node {
     const nl = new NodeList<Element>(elements);
     this._qsaCache.set(selector, { v: ver, r: nl });
     return nl;
-  }
-}
-
-// ── Shared tree-walk helpers (used by both Document and Element) ──────
-
-/**
- * Returns a live HTMLCollection of elements matching all given class names,
- * scoped to the subtree rooted at `root`.
- */
-export function _getElementsByClassName(root: Node, className: string): HTMLCollection {
-  const requiredClasses = className.split(/\s+/).filter(c => c.length > 0);
-  return new HTMLCollection(() => {
-    const results: Node[] = [];
-    _walkElements(root, (el: Element) => {
-      if (requiredClasses.length === 0) return;
-      const elClasses = el.className.split(/\s+/);
-      if (requiredClasses.every(rc => elClasses.includes(rc))) {
-        results.push(el);
-      }
-    });
-    return results;
-  });
-}
-
-/**
- * Returns a live HTMLCollection of elements matching the given tag name,
- * scoped to the subtree rooted at `root`. '*' matches all elements.
- * Tag comparison is case-insensitive.
- */
-export function _getElementsByTagName(root: Node, tagName: string): HTMLCollection {
-  const upper = tagName.toUpperCase();
-  const matchAll = upper === '*';
-  return new HTMLCollection(() => {
-    const results: Node[] = [];
-    _walkElements(root, (el: Element) => {
-      if (matchAll || el.tagName === upper) {
-        results.push(el);
-      }
-    });
-    return results;
-  });
-}
-
-/** Depth-first walk of all Element descendants (excludes root). */
-function _walkElements(node: Node, callback: (el: Element) => void): void {
-  for (const child of node._children) {
-    if (child.nodeType === Node.ELEMENT_NODE) {
-      callback(child as Element);
-    }
-    _walkElements(child, callback);
   }
 }

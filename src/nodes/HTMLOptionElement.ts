@@ -46,6 +46,10 @@ export class HTMLOptionElement extends Element {
     this._selected = v;
   }
 
+  protected _copyCloneState(clone: Element): void {
+    (clone as HTMLOptionElement)._selected = this._selected;
+  }
+
   // ── defaultSelected ───────────────────────────────────────────────
 
   get defaultSelected(): boolean {

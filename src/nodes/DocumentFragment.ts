@@ -1,7 +1,7 @@
 import { Node } from './Node';
 import { Element } from './Element';
 import { Text } from './Text';
-import { _getElementsByClassName, _getElementsByTagName } from './Document';
+import { _getElementsByClassName, _getElementsByTagName } from './TreeWalk';
 import { HTMLCollection } from '../collections/HTMLCollection';
 import { NodeList } from './NodeList';
 import { parseSelector, querySelectorAllElements, querySelectorFirstElement } from '../selectors';
@@ -17,6 +17,18 @@ import { parseSelector, querySelectorAllElements, querySelectorFirstElement } fr
 export class DocumentFragment extends Node {
   constructor() {
     super(Node.DOCUMENT_FRAGMENT_NODE, '#document-fragment');
+
+    const activeDocument =
+      typeof globalThis !== 'undefined' &&
+      'document' in globalThis &&
+      (globalThis as Record<string, unknown>).document &&
+      typeof (globalThis as { document?: { createElement?: unknown } }).document?.createElement === 'function'
+        ? (globalThis as { document: unknown }).document
+        : null;
+
+    if (activeDocument) {
+      this.ownerDocument = activeDocument;
+    }
   }
 
   // ── Convenience mutation methods ───────────────────────────────────

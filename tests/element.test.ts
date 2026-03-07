@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Element, Text, Comment, Attr, Node, NamedNodeMap, DOMTokenList, HTMLCollection } from '../src/index';
+import { HTMLInputElement } from '../src/nodes/HTMLInputElement';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Element basics
@@ -664,6 +665,18 @@ describe('Element', () => {
       expect(clone.childNodes.length).toBe(2);
       expect((clone.firstChild as Element).tagName).toBe('SPAN');
       expect(clone.firstChild).not.toBe(el.firstChild); // different instance
+    });
+
+    it('preserves specialized element subclasses and internal state', () => {
+      const input = new HTMLInputElement();
+      input.type = 'checkbox';
+      input.value = 'draft';
+      input.checked = true;
+
+      const clone = input.cloneNode(false);
+      expect(clone).toBeInstanceOf(HTMLInputElement);
+      expect((clone as HTMLInputElement).value).toBe('draft');
+      expect((clone as HTMLInputElement).checked).toBe(true);
     });
   });
 

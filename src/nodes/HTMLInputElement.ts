@@ -235,11 +235,11 @@ export class HTMLInputElement extends Element {
   // ── Methods ───────────────────────────────────────────────────────
 
   focus(): void {
-    // no-op in CLI browser
+    super.focus();
   }
 
   blur(): void {
-    // no-op in CLI browser
+    super.blur();
   }
 
   click(): void {
@@ -247,13 +247,17 @@ export class HTMLInputElement extends Element {
     if (this.type === 'checkbox') {
       this._checked = !this._checked;
     }
-    // Dispatch click event
-    const event = new Event('click', { bubbles: true, cancelable: true });
-    this.dispatchEvent(event);
+    super.click();
   }
 
   select(): void {
     // no-op in CLI browser
+  }
+
+  protected _copyCloneState(clone: Element): void {
+    const inputClone = clone as HTMLInputElement;
+    inputClone._value = this._value;
+    inputClone._checked = this._checked;
   }
 
   // ── Validation ────────────────────────────────────────────────────

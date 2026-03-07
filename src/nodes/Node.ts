@@ -1,5 +1,6 @@
 import { NodeList } from './NodeList';
 import { EventTarget } from '../events/EventTarget';
+import { triggerMutation, hasMutationObservers } from '../observers/MutationObserver';
 
 /**
  * Node — the base class of the DOM tree.
@@ -105,24 +106,24 @@ export class Node extends EventTarget {
 
     // If appending a DocumentFragment, move its children instead
     if (child.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-      while (child._children.length > 0) {
-        this.appendChild(child._children[0]);
-      }
+      const movedNodes = this._consumeFragmentChildren(child);
+      if (movedNodes.length === 0) return child;
+
+      const insertion = this._insertNodesAt(this._children.length, movedNodes);
+      this._notifyChildListMutation({
+        addedNodes: movedNodes,
+        previousSibling: insertion.previousSibling,
+        nextSibling: insertion.nextSibling,
+      });
       return child;
     }
 
-    // Wire up
-    const last = this.lastChild;
-    if (last) {
-      last.nextSibling = child;
-      child.previousSibling = last;
-    } else {
-      child.previousSibling = null;
-    }
-    child.nextSibling = null;
-    child.parentNode = this;
-    this._children.push(child);
-    this._notifyMutation();
+    const insertion = this._insertNodesAt(this._children.length, [child]);
+    this._notifyChildListMutation({
+      addedNodes: [child],
+      previousSibling: insertion.previousSibling,
+      nextSibling: insertion.nextSibling,
+    });
 
     return child;
   }
@@ -136,7 +137,12 @@ export class Node extends EventTarget {
       );
     }
 
-    this._spliceChild(index);
+    const { child: removed, previousSibling, nextSibling } = this._spliceChild(index);
+    this._notifyChildListMutation({
+      removedNodes: [removed],
+      previousSibling,
+      nextSibling,
+    });
     return child;
   }
 
@@ -173,28 +179,26 @@ export class Node extends EventTarget {
 
     // If inserting a DocumentFragment, move its children instead
     if (newChild.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-      // Insert fragment children in order before refChild
-      while (newChild._children.length > 0) {
-        this.insertBefore(newChild._children[0], refChild);
-      }
+      const movedNodes = this._consumeFragmentChildren(newChild);
+      if (movedNodes.length === 0) return newChild;
+
+      const insertion = this._insertNodesAt(refIndex, movedNodes);
+      this._notifyChildListMutation({
+        addedNodes: movedNodes,
+        previousSibling: insertion.previousSibling,
+        nextSibling: insertion.nextSibling,
+      });
       return newChild;
     }
 
     // Re-find refIndex (may have shifted after re-parent removal)
     const insertIndex = this._children.indexOf(refChild);
-
-    // Wire sibling links
-    const prev = refChild.previousSibling;
-    if (prev) {
-      prev.nextSibling = newChild;
-    }
-    newChild.previousSibling = prev;
-    newChild.nextSibling = refChild;
-    refChild.previousSibling = newChild;
-
-    newChild.parentNode = this;
-    this._children.splice(insertIndex, 0, newChild);
-    this._notifyMutation();
+    const insertion = this._insertNodesAt(insertIndex, [newChild]);
+    this._notifyChildListMutation({
+      addedNodes: [newChild],
+      previousSibling: insertion.previousSibling,
+      nextSibling: insertion.nextSibling,
+    });
 
     return newChild;
   }
@@ -230,21 +234,17 @@ export class Node extends EventTarget {
 
     // If replacing with a DocumentFragment, splice its children in
     if (newChild.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-      const fragmentChildren = [...newChild._children];
-      // Remove oldChild
-      this._spliceChild(replaceIndex);
-      // Insert fragment children at the position
-      for (let i = 0; i < fragmentChildren.length; i++) {
-        const fc = fragmentChildren[i];
-        fc.parentNode = null; // detach from fragment
-        // Find insertion point
-        if (replaceIndex + i >= this._children.length) {
-          this.appendChild(fc);
-        } else {
-          this.insertBefore(fc, this._children[replaceIndex + i]);
-        }
+      const { previousSibling, nextSibling } = this._spliceChild(replaceIndex);
+      const fragmentChildren = this._consumeFragmentChildren(newChild);
+      if (fragmentChildren.length > 0) {
+        this._insertNodesAt(replaceIndex, fragmentChildren);
       }
-      newChild._children.length = 0;
+      this._notifyChildListMutation({
+        addedNodes: fragmentChildren,
+        removedNodes: [oldChild],
+        previousSibling,
+        nextSibling,
+      });
       return oldChild;
     }
 
@@ -265,7 +265,12 @@ export class Node extends EventTarget {
     // Slot newChild in
     newChild.parentNode = this;
     this._children[replaceIndex] = newChild;
-    this._notifyMutation();
+    this._notifyChildListMutation({
+      addedNodes: [newChild],
+      removedNodes: [oldChild],
+      previousSibling: prev,
+      nextSibling: next,
+    });
 
     return oldChild;
   }
@@ -304,7 +309,9 @@ export class Node extends EventTarget {
 
     // For text-bearing nodes, update the data directly (no children)
     if (this.nodeType === Node.TEXT_NODE || this.nodeType === Node.COMMENT_NODE) {
+      const oldValue = this._textData ?? '';
       this._textData = value;
+      this._notifyCharacterDataMutation(oldValue);
       return;
     }
 
@@ -327,8 +334,35 @@ export class Node extends EventTarget {
     if (doc) doc._mutationVersion++;
   }
 
+  protected _notifyChildListMutation(details: {
+    addedNodes?: Node[];
+    removedNodes?: Node[];
+    previousSibling?: Node | null;
+    nextSibling?: Node | null;
+  }): void {
+    this._notifyMutation();
+    if (!hasMutationObservers()) return;
+    triggerMutation('childList', this, details);
+  }
+
+  protected _notifyAttributeMutation(attributeName: string, oldValue: string | null): void {
+    this._notifyMutation();
+    if (!hasMutationObservers()) return;
+    triggerMutation('attributes', this, { attributeName, oldValue });
+  }
+
+  protected _notifyCharacterDataMutation(oldValue: string | null): void {
+    this._notifyMutation();
+    if (!hasMutationObservers()) return;
+    triggerMutation('characterData', this, { oldValue });
+  }
+
   /** Remove child at index, fix sibling links, detach from parent. */
-  private _spliceChild(index: number): void {
+  private _spliceChild(index: number): {
+    child: Node;
+    previousSibling: Node | null;
+    nextSibling: Node | null;
+  } {
     const child = this._children[index];
     const prev = child.previousSibling;
     const next = child.nextSibling;
@@ -341,7 +375,45 @@ export class Node extends EventTarget {
     child.nextSibling = null;
 
     this._children.splice(index, 1);
-    this._notifyMutation();
+    return { child, previousSibling: prev, nextSibling: next };
+  }
+
+  private _consumeFragmentChildren(fragment: Node): Node[] {
+    if (fragment._children.length === 0) return [];
+
+    const movedNodes = fragment._children.slice();
+    fragment._children.length = 0;
+
+    for (const node of movedNodes) {
+      node.parentNode = null;
+      node.previousSibling = null;
+      node.nextSibling = null;
+    }
+
+    return movedNodes;
+  }
+
+  private _insertNodesAt(index: number, nodes: Node[]): {
+    previousSibling: Node | null;
+    nextSibling: Node | null;
+  } {
+    const previousSibling = index > 0 ? this._children[index - 1] : null;
+    const nextSibling = index < this._children.length ? this._children[index] : null;
+
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      node.parentNode = this;
+      node.previousSibling = i === 0 ? previousSibling : nodes[i - 1];
+      node.nextSibling = i === nodes.length - 1 ? nextSibling : nodes[i + 1];
+    }
+
+    if (nodes.length > 0) {
+      if (previousSibling) previousSibling.nextSibling = nodes[0];
+      if (nextSibling) nextSibling.previousSibling = nodes[nodes.length - 1];
+      this._children.splice(index, 0, ...nodes);
+    }
+
+    return { previousSibling, nextSibling };
   }
 }
 

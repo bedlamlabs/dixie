@@ -5,6 +5,7 @@ const COMMANDS = new Set([
   'links', 'forms', 'text', 'structure', 'api', 'expected-calls',
   'click', 'type', 'select', 'inspect', 'init', 'component',
   'fidelity', 'lighthouse', 'har', 'redact',
+  'snapshot', 'mock-record', 'mock-replay',
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -18,6 +19,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     bail: false,
     noColor: false,
     selectorStrategy: 'css',
+    samples: 5,
     rest: [],
   };
 
@@ -65,6 +67,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
       args.filter = argv[++i];
     } else if (arg === '--selector-strategy' && i + 1 < argv.length) {
       args.selectorStrategy = argv[++i] as any;
+    } else if (arg === '--out' && i + 1 < argv.length) {
+      args.snapshotOut = argv[++i];
+    } else if (arg === '--har' && i + 1 < argv.length) {
+      args.harFile = argv[++i];
+    } else if (arg === '--samples' && i + 1 < argv.length) {
+      args.samples = parseInt(argv[++i], 10);
     } else if (arg === '--no-js') {
       args.noJs = true;
     } else if (arg === '--parallel') {

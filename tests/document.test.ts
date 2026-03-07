@@ -3,11 +3,18 @@ import {
   Document,
   DocumentFragment,
   Element,
+  HTMLButtonElement,
   Text,
   Comment,
+  HTMLFormElement,
+  HTMLInputElement,
+  HTMLLabelElement,
   Node,
   HTMLCollection,
+  HTMLOptionElement,
   NodeList,
+  HTMLSelectElement,
+  HTMLTextAreaElement,
 } from '../src/index';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -82,6 +89,18 @@ describe('Document', () => {
     it('handles mixed-case tagName', () => {
       const doc = new Document();
       expect(doc.createElement('Section').tagName).toBe('SECTION');
+    });
+
+    it('returns specialized form elements for supported tags', () => {
+      const doc = new Document();
+
+      expect(doc.createElement('form')).toBeInstanceOf(HTMLFormElement);
+      expect(doc.createElement('input')).toBeInstanceOf(HTMLInputElement);
+      expect(doc.createElement('select')).toBeInstanceOf(HTMLSelectElement);
+      expect(doc.createElement('textarea')).toBeInstanceOf(HTMLTextAreaElement);
+      expect(doc.createElement('button')).toBeInstanceOf(HTMLButtonElement);
+      expect(doc.createElement('option')).toBeInstanceOf(HTMLOptionElement);
+      expect(doc.createElement('label')).toBeInstanceOf(HTMLLabelElement);
     });
   });
 

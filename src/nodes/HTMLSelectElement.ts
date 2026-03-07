@@ -181,6 +181,10 @@ export class HTMLSelectElement extends Element {
     }
   }
 
+  protected _copyCloneState(clone: Element): void {
+    (clone as HTMLSelectElement)._selectedIndex = this._selectedIndex;
+  }
+
   // ── Validation ────────────────────────────────────────────────────
 
   checkValidity(): boolean {
