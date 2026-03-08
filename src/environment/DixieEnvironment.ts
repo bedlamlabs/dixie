@@ -47,6 +47,7 @@ import { HTMLFormElement } from '../nodes/HTMLFormElement';
 import { HTMLLabelElement } from '../nodes/HTMLLabelElement';
 import { HTMLOptionElement } from '../nodes/HTMLOptionElement';
 import { DOMParser } from '../browser/DOMParser';
+import { NodeIteratorFilter } from '../nodes/Document';
 
 import type { Location } from '../browser/Location';
 import type { History } from '../browser/History';
@@ -179,6 +180,7 @@ const GLOBAL_KEYS = [
   'getComputedStyle',
   'matchMedia',
   'DOMParser',
+  'NodeFilter',
   ...HTML_ELEMENT_NAMES,
 ] as const;
 
@@ -212,6 +214,7 @@ const STATIC_GLOBALS: Readonly<Record<string, unknown>> = Object.freeze({
   IntersectionObserver,
   Element,
   DOMParser,
+  NodeFilter: NodeIteratorFilter,
   // HTML element constructors — real classes for elements with prototype getter/setters,
   // dummy constructors with Symbol.hasInstance for everything else
   ...HTML_CONSTRUCTORS_MAP,
