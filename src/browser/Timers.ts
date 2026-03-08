@@ -29,6 +29,27 @@ const RAF_FRAME_TIME = 16;
 // Guard against infinite loops in runAll
 const MAX_RUN_ALL_ITERATIONS = 1000;
 
+/**
+ * TimerHandle — a number-like object with .ref() and .unref() stubs.
+ * Node.js internals (undici/fetch) call .unref() on setTimeout return values.
+ * Without these stubs, native fetch crashes inside a Dixie environment.
+ */
+interface TimerHandle {
+  ref(): TimerHandle;
+  unref(): TimerHandle;
+  hasRef(): boolean;
+  [Symbol.toPrimitive](hint: string): number;
+}
+
+function _wrapTimerHandle(id: number): TimerHandle {
+  return {
+    ref() { return this; },
+    unref() { return this; },
+    hasRef() { return true; },
+    [Symbol.toPrimitive]() { return id; },
+  };
+}
+
 // ── Capture native timer functions before installGlobals can replace them ──
 
 const _nativeSetTimeout = globalThis.setTimeout;
@@ -78,7 +99,7 @@ export class TimerController {
 
   // ── Timer creation ──────────────────────────────────────────────────
 
-  setTimeout(callback: (...args: unknown[]) => void, delay: number = 0, ...args: unknown[]): number {
+  setTimeout(callback: (...args: unknown[]) => void, delay: number = 0, ...args: unknown[]): TimerHandle {
     const id = this._nextId++;
 
     if (this._mode === 'real') {
@@ -87,7 +108,7 @@ export class TimerController {
         callback(...args);
       }, delay);
       this._realHandles.set(id, handle);
-      return id;
+      return _wrapTimerHandle(id);
     }
 
     // Fake mode
@@ -101,10 +122,10 @@ export class TimerController {
       registrationOrder: this._registrationCounter++,
     });
     this._sortPending();
-    return id;
+    return _wrapTimerHandle(id);
   }
 
-  clearTimeout(id: number): void {
+  clearTimeout(id: number | TimerHandle): void {
     if (this._mode === 'real') {
       const handle = this._realHandles.get(id);
       if (handle !== undefined) {
@@ -123,7 +144,7 @@ export class TimerController {
     }
   }
 
-  setInterval(callback: (...args: unknown[]) => void, delay: number = 0, ...args: unknown[]): number {
+  setInterval(callback: (...args: unknown[]) => void, delay: number = 0, ...args: unknown[]): TimerHandle {
     const id = this._nextId++;
     const period = Math.max(1, delay); // intervals with 0 delay clamp to 1ms
 
@@ -132,7 +153,7 @@ export class TimerController {
         callback(...args);
       }, delay);
       this._realHandles.set(id, handle);
-      return id;
+      return _wrapTimerHandle(id);
     }
 
     // Fake mode
@@ -146,10 +167,10 @@ export class TimerController {
       registrationOrder: this._registrationCounter++,
     });
     this._sortPending();
-    return id;
+    return _wrapTimerHandle(id);
   }
 
-  clearInterval(id: number): void {
+  clearInterval(id: number | TimerHandle): void {
     // clearTimeout and clearInterval are interchangeable per browser spec
     this.clearTimeout(id);
   }

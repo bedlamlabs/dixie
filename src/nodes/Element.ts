@@ -9,6 +9,7 @@ import { CSSStyleDeclaration } from '../css/CSSStyleDeclaration';
 import { _getElementsByClassName, _getElementsByTagName } from './Document';
 import { parseHTML } from '../parser/HTMLParser';
 import { serializeHTML } from '../parser/HTMLSerializer';
+import { Event } from '../events/Event';
 import {
   parseSelector,
   matchesSelector,
@@ -65,7 +66,10 @@ export class Element extends Node {
 
   focus(_options?: any): void {}
   blur(): void {}
-  click(): void {}
+  click(): void {
+    const event = new Event('click', { bubbles: true, cancelable: true });
+    this.dispatchEvent(event);
+  }
   scrollIntoView(_arg?: any): void {}
 
   // ── Select element support ─────────────────────────────────────────

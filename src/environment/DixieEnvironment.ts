@@ -39,6 +39,14 @@ import { Node } from '../nodes/Node';
 import { Text } from '../nodes/Text';
 import { Comment } from '../nodes/Comment';
 import { DocumentFragment } from '../nodes/DocumentFragment';
+import { HTMLInputElement } from '../nodes/HTMLInputElement';
+import { HTMLTextAreaElement } from '../nodes/HTMLTextAreaElement';
+import { HTMLSelectElement } from '../nodes/HTMLSelectElement';
+import { HTMLButtonElement } from '../nodes/HTMLButtonElement';
+import { HTMLFormElement } from '../nodes/HTMLFormElement';
+import { HTMLLabelElement } from '../nodes/HTMLLabelElement';
+import { HTMLOptionElement } from '../nodes/HTMLOptionElement';
+import { DOMParser } from '../browser/DOMParser';
 
 import type { Location } from '../browser/Location';
 import type { History } from '../browser/History';
@@ -73,22 +81,68 @@ export interface DixieEnvironment {
 
 // ── Globals to install ───────────────────────────────────────────────────
 
-// HTML element constructors that React and libraries check via instanceof.
-// All map to Element since we don't need subclass-specific behavior.
-const HTML_ELEMENT_NAMES = [
-  'HTMLElement', 'HTMLDivElement', 'HTMLSpanElement', 'HTMLAnchorElement',
-  'HTMLButtonElement', 'HTMLInputElement', 'HTMLTextAreaElement',
-  'HTMLSelectElement', 'HTMLFormElement', 'HTMLIFrameElement',
-  'HTMLImageElement', 'HTMLLabelElement', 'HTMLOptionElement',
-  'HTMLTableElement', 'HTMLTableRowElement', 'HTMLTableCellElement',
-  'HTMLUListElement', 'HTMLOListElement', 'HTMLLIElement',
-  'HTMLParagraphElement', 'HTMLHeadingElement', 'HTMLPreElement',
-  'HTMLCanvasElement', 'HTMLVideoElement', 'HTMLAudioElement',
-  'HTMLSourceElement', 'HTMLScriptElement', 'HTMLStyleElement',
-  'HTMLLinkElement', 'HTMLMetaElement', 'HTMLBodyElement',
-  'HTMLHeadElement', 'HTMLHtmlElement', 'HTMLTemplateElement',
-  'HTMLSlotElement', 'HTMLDialogElement', 'SVGElement',
-] as const;
+// Tag map: constructor name → uppercase tag name for instanceof checks
+const TAG_MAP: Record<string, string> = {
+  HTMLElement: '',  // base — matches any element
+  HTMLDivElement: 'DIV', HTMLSpanElement: 'SPAN', HTMLAnchorElement: 'A',
+  HTMLButtonElement: 'BUTTON', HTMLInputElement: 'INPUT', HTMLTextAreaElement: 'TEXTAREA',
+  HTMLSelectElement: 'SELECT', HTMLFormElement: 'FORM', HTMLIFrameElement: 'IFRAME',
+  HTMLImageElement: 'IMG', HTMLLabelElement: 'LABEL', HTMLOptionElement: 'OPTION',
+  HTMLTableElement: 'TABLE', HTMLTableRowElement: 'TR', HTMLTableCellElement: 'TD',
+  HTMLUListElement: 'UL', HTMLOListElement: 'OL', HTMLLIElement: 'LI',
+  HTMLParagraphElement: 'P', HTMLHeadingElement: 'H1', HTMLPreElement: 'PRE',
+  HTMLCanvasElement: 'CANVAS', HTMLVideoElement: 'VIDEO', HTMLAudioElement: 'AUDIO',
+  HTMLSourceElement: 'SOURCE', HTMLScriptElement: 'SCRIPT', HTMLStyleElement: 'STYLE',
+  HTMLLinkElement: 'LINK', HTMLMetaElement: 'META', HTMLBodyElement: 'BODY',
+  HTMLHeadElement: 'HEAD', HTMLHtmlElement: 'HTML', HTMLTemplateElement: 'TEMPLATE',
+  HTMLSlotElement: 'SLOT', HTMLDialogElement: 'DIALOG', SVGElement: '',
+};
+
+const HTML_ELEMENT_NAMES = Object.keys(TAG_MAP) as (keyof typeof TAG_MAP)[];
+
+// Real element classes that have prototype getter/setters (e.g. .checked, .value)
+const REAL_ELEMENT_CLASSES: Record<string, any> = {
+  HTMLInputElement, HTMLTextAreaElement, HTMLSelectElement,
+  HTMLButtonElement, HTMLFormElement, HTMLLabelElement, HTMLOptionElement,
+};
+
+/** Create a dummy constructor with Symbol.hasInstance for tag-based instanceof. */
+function createHTMLConstructor(tagName: string): any {
+  const ctor = function() {} as any;
+  ctor.prototype = Object.create(Element.prototype);
+  Object.defineProperty(ctor, Symbol.hasInstance, {
+    value: (obj: unknown) => {
+      if (!(obj instanceof Element)) return false;
+      if (!tagName) return true;
+      return (obj as any).tagName === tagName;
+    },
+  });
+  return ctor;
+}
+
+/** Add Symbol.hasInstance to a real class for tag-based instanceof. */
+function addHasInstance(cls: any, tagName: string): void {
+  if (!Object.getOwnPropertyDescriptor(cls, Symbol.hasInstance)) {
+    Object.defineProperty(cls, Symbol.hasInstance, {
+      value: (obj: unknown) => {
+        if (!(obj instanceof Element)) return false;
+        if (!tagName) return true;
+        return (obj as any).tagName === tagName;
+      },
+    });
+  }
+}
+
+// Build the final constructor map: real classes keep their prototypes, others get dummies
+const HTML_CONSTRUCTORS_MAP: Record<string, any> = {};
+for (const [name, tag] of Object.entries(TAG_MAP)) {
+  if (REAL_ELEMENT_CLASSES[name]) {
+    addHasInstance(REAL_ELEMENT_CLASSES[name], tag);
+    HTML_CONSTRUCTORS_MAP[name] = REAL_ELEMENT_CLASSES[name];
+  } else {
+    HTML_CONSTRUCTORS_MAP[name] = createHTMLConstructor(tag);
+  }
+}
 
 /** Keys that installGlobals sets on the target. Used for save/restore. */
 const GLOBAL_KEYS = [
@@ -120,9 +174,11 @@ const GLOBAL_KEYS = [
   'MutationObserver',
   'ResizeObserver',
   'IntersectionObserver',
+  'Element',
   'EventTarget',
   'getComputedStyle',
   'matchMedia',
+  'DOMParser',
   ...HTML_ELEMENT_NAMES,
 ] as const;
 
@@ -154,8 +210,11 @@ const STATIC_GLOBALS: Readonly<Record<string, unknown>> = Object.freeze({
   MutationObserver,
   ResizeObserver,
   IntersectionObserver,
-  // All HTML element constructors map to Element for instanceof checks
-  ...Object.fromEntries(HTML_ELEMENT_NAMES.map(name => [name, Element])),
+  Element,
+  DOMParser,
+  // HTML element constructors — real classes for elements with prototype getter/setters,
+  // dummy constructors with Symbol.hasInstance for everything else
+  ...HTML_CONSTRUCTORS_MAP,
 });
 
 export function createDixieEnvironment(options?: DixieEnvironmentOptions): DixieEnvironment {
@@ -317,29 +376,39 @@ export function createDixieEnvironment(options?: DixieEnvironmentOptions): Dixie
 
       savedOriginals.set(t, originals);
 
-      // Install instance-specific values
-      t['window'] = window;
-      t['document'] = document;
-      t['navigator'] = window.navigator;
-      t['location'] = window.location;
-      t['localStorage'] = localStorage;
-      t['sessionStorage'] = sessionStorage;
-      t['setTimeout'] = boundSetTimeout;
-      t['clearTimeout'] = boundClearTimeout;
-      t['setInterval'] = boundSetInterval;
-      t['clearInterval'] = boundClearInterval;
-      t['requestAnimationFrame'] = boundRaf;
-      t['cancelAnimationFrame'] = boundCaf;
+      // Install instance-specific values. Use defineProperty for globals that
+      // Node.js exposes as getter-only (navigator, localStorage, sessionStorage).
+      const safeSet = (key: string, value: unknown) => {
+        try {
+          t[key] = value;
+        } catch {
+          Object.defineProperty(t, key, { value, writable: true, configurable: true });
+        }
+      };
+      safeSet('window', window);
+      safeSet('document', document);
+      safeSet('navigator', window.navigator);
+      safeSet('location', window.location);
+      safeSet('localStorage', localStorage);
+      safeSet('sessionStorage', sessionStorage);
+      safeSet('setTimeout', boundSetTimeout);
+      safeSet('clearTimeout', boundClearTimeout);
+      safeSet('setInterval', boundSetInterval);
+      safeSet('clearInterval', boundClearInterval);
+      safeSet('requestAnimationFrame', boundRaf);
+      safeSet('cancelAnimationFrame', boundCaf);
 
       // Install static globals (event classes, observer classes, DOM constructors)
-      Object.assign(t, STATIC_GLOBALS);
+      for (const [key, value] of Object.entries(STATIC_GLOBALS)) {
+        safeSet(key, value);
+      }
 
       // Also set on window object so `win.HTMLIFrameElement` works (React uses this)
       Object.assign(window, STATIC_GLOBALS);
 
       // Install getComputedStyle and matchMedia from the window
-      t['getComputedStyle'] = window.getComputedStyle.bind(window);
-      t['matchMedia'] = window.matchMedia.bind(window);
+      safeSet('getComputedStyle', window.getComputedStyle.bind(window));
+      safeSet('matchMedia', window.matchMedia.bind(window));
     },
 
     uninstallGlobals(target?: object): void {
@@ -351,9 +420,13 @@ export function createDixieEnvironment(options?: DixieEnvironmentOptions): Dixie
 
       for (const [key, original] of originals) {
         if (original === NOT_SET) {
-          delete t[key];
+          try { delete t[key]; } catch { /* readonly */ }
         } else {
-          t[key] = original;
+          try {
+            t[key] = original;
+          } catch {
+            Object.defineProperty(t, key, { value: original, writable: true, configurable: true });
+          }
         }
       }
 

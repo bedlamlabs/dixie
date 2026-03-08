@@ -23,6 +23,19 @@ export class Document extends Node {
   /** Points to the Window object when running inside a DixieEnvironment. */
   defaultView: any = null;
 
+  /** DOMImplementation stub — provides createHTMLDocument for libraries like TipTap. */
+  readonly implementation = {
+    createHTMLDocument: (title?: string): Document => {
+      const doc = new Document();
+      if (title !== undefined) {
+        doc.title = title;
+      }
+      return doc;
+    },
+    createDocument: (): Document => new Document(),
+    hasFeature: (): boolean => true,
+  };
+
   /** Document visibility state. */
   readonly visibilityState: string = 'visible';
 

@@ -6,7 +6,7 @@ export default {
   transformMode: 'ssr' as const,
 
   async setup() {
-    const env = createDixieEnvironment({ url: 'http://localhost/' });
+    const env = createDixieEnvironment({ url: process.env.DIXIE_VITEST_URL || 'http://localhost/' });
     env.installGlobals();
 
     return {

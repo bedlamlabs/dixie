@@ -36,7 +36,36 @@ export class Node extends EventTarget {
   parentNode: Node | null = null;
   nextSibling: Node | null = null;
   previousSibling: Node | null = null;
-  ownerDocument: any | null = null; // typed loosely until Document exists
+  _ownerDocument: any | null = null; // typed loosely until Document exists
+
+  /**
+   * ownerDocument — returns the Document that owns this node.
+   * If the stored value is null, walks up the parent chain to find
+   * the root Document (defensive fallback for nodes that missed adoption).
+   */
+  get ownerDocument(): any | null {
+    if (this._ownerDocument) return this._ownerDocument;
+    // Document nodes return null per spec (they ARE the document)
+    if (this.nodeType === 9 /* DOCUMENT_NODE */) return null;
+    // Walk up to find the Document
+    let node: Node | null = this.parentNode;
+    while (node) {
+      if (node._ownerDocument) return node._ownerDocument;
+      if (node.nodeType === 9 /* DOCUMENT_NODE */) return node;
+      node = node.parentNode;
+    }
+    // Fallback: in a single-document environment, globalThis.document is always correct.
+    // React portals and concurrent error recovery access ownerDocument on detached nodes;
+    // returning null would crash React's createElement.
+    if (typeof globalThis !== 'undefined' && (globalThis as any).document) {
+      return (globalThis as any).document;
+    }
+    return null;
+  }
+
+  set ownerDocument(doc: any | null) {
+    this._ownerDocument = doc;
+  }
 
   /** Mutable text data for TEXT_NODE and COMMENT_NODE. */
   _textData: string | null = null;
@@ -122,6 +151,13 @@ export class Node extends EventTarget {
     child.nextSibling = null;
     child.parentNode = this;
     this._children.push(child);
+
+    // Adopt: propagate ownerDocument from the tree to the child (DOM spec "adopt" step)
+    const doc = this.nodeType === 9 /* DOCUMENT_NODE */ ? this as any : this.ownerDocument;
+    if (doc && child.ownerDocument !== doc) {
+      this._adoptNode(child, doc);
+    }
+
     this._notifyMutation();
 
     return child;
@@ -194,6 +230,13 @@ export class Node extends EventTarget {
 
     newChild.parentNode = this;
     this._children.splice(insertIndex, 0, newChild);
+
+    // Adopt: propagate ownerDocument from the tree to the child (DOM spec "adopt" step)
+    const doc = this.nodeType === 9 /* DOCUMENT_NODE */ ? this as any : this.ownerDocument;
+    if (doc && newChild.ownerDocument !== doc) {
+      this._adoptNode(newChild, doc);
+    }
+
     this._notifyMutation();
 
     return newChild;
@@ -325,6 +368,14 @@ export class Node extends EventTarget {
   protected _notifyMutation(): void {
     const doc = this.nodeType === 9 /* DOCUMENT_NODE */ ? this as any : this.ownerDocument;
     if (doc) doc._mutationVersion++;
+  }
+
+  /** Recursively set ownerDocument on a node and all its descendants. */
+  private _adoptNode(node: Node, doc: any): void {
+    node.ownerDocument = doc;
+    for (const child of node._children) {
+      this._adoptNode(child, doc);
+    }
   }
 
   /** Remove child at index, fix sibling links, detach from parent. */
