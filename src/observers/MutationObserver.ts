@@ -162,13 +162,21 @@ export class MutationObserver {
   }
 
   /**
-   * Queue a record for delivery. Schedules async callback via queueMicrotask.
+   * Queue a record for delivery. Schedules async callback via setImmediate,
+   * which fires after the current event loop tick (after all microtasks and
+   * I/O callbacks complete). This matches Chromium's frame-coalesced delivery
+   * semantics: React finishes its entire synchronous reconciliation first,
+   * then we deliver one batched callback — not one callback per fiber step.
+   *
+   * Using queueMicrotask here caused the settle detector in the journey
+   * benchmark to restart its quiet window on every React fiber boundary,
+   * adding hundreds of milliseconds of false-extension wait per page.
    */
   _queueRecord(record: MutationRecord): void {
     this._recordQueue.push(record);
     if (!this._scheduled) {
       this._scheduled = true;
-      queueMicrotask(() => this._deliver());
+      setImmediate(() => this._deliver());
     }
   }
 
