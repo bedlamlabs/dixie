@@ -26,7 +26,8 @@ describe('RenderContext', () => {
     expect(ctx.env.document).toBeDefined();
     expect(ctx.env.window).toBeDefined();
     expect(ctx.console).toBeDefined();
-    expect(ctx.console.isInstalled()).toBe(true);
+    // v4: globalInstall: false — capture is functional but not installed on globalThis
+    expect(typeof ctx.console.captureError).toBe('function');
     expect(ctx.fetch).toBeDefined();
   });
 
@@ -61,9 +62,9 @@ describe('RenderContext', () => {
     ctx = new RenderContext();
     ctx.setContent('<div>Content</div>');
 
-    // Emit a real non-noise error
-    console.error('Unhandled rejection: TypeError something broke');
-    console.warn('Deprecation: something is deprecated now');
+    // v4: use ctx.console methods instead of console.error() (no globalThis mutation)
+    ctx.console.captureError('Unhandled rejection: TypeError something broke');
+    ctx.console.captureWarning('Deprecation: something is deprecated now');
 
     const result = ctx.getResult();
 
@@ -166,8 +167,8 @@ describe('RenderContext diagnosis', () => {
     ctx = new RenderContext();
     ctx.setContent('<div>Content</div>');
 
-    // Emit a non-noise error
-    console.error('Unhandled rejection: TypeError something broke badly');
+    // v4: use ctx.console.captureError() instead of console.error() (no globalThis mutation)
+    ctx.console.captureError('Unhandled rejection: TypeError something broke badly');
 
     const diagnosis = ctx.diagnose();
 
@@ -198,9 +199,8 @@ describe('RenderContext diagnosis', () => {
     ctx = new RenderContext();
     ctx.setContent('<div>Content</div>');
 
-    // Emit auth-related error (must survive noise filter)
-    // The default noise patterns include "No auth token" so we use a different message
-    console.error('401 Unauthorized: session expired please login again');
+    // v4: use ctx.console.captureError() instead of console.error() (no globalThis mutation)
+    ctx.console.captureError('401 Unauthorized: session expired please login again');
 
     const diagnosis = ctx.diagnose();
 
@@ -310,7 +310,8 @@ describe('RenderHarness', () => {
     const ctx = new RenderContext();
     try {
       ctx.setContent('<div>Content</div>');
-      console.error('Fatal: component threw during render cycle');
+      // v4: use ctx.console.captureError() instead of console.error() (no globalThis mutation)
+      ctx.console.captureError('Fatal: component threw during render cycle');
       const ctxResult = ctx.getResult();
       expect(ctxResult.success).toBe(false);
       expect(ctxResult.console.errors.length).toBeGreaterThan(0);
@@ -391,8 +392,8 @@ describe('RenderHarness', () => {
       ctx.console.addNoisePattern('MyCustomFrameworkWarning');
       ctx.setContent('<div>Content</div>');
 
-      // Emit a message matching the custom pattern
-      console.error('MyCustomFrameworkWarning: something happened');
+      // v4: use ctx.console.captureError() instead of console.error() (no globalThis mutation)
+      ctx.console.captureError('MyCustomFrameworkWarning: something happened');
 
       const result = ctx.getResult();
 

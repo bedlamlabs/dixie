@@ -38,3 +38,18 @@ export interface DixieConfig {
   render?: (url: string, env: any) => any;
   [key: string]: any;
 }
+
+// ── v4 Config Types ───────────────────────────────────────────────────
+
+export interface AuthStrategy {
+  type: 'bearer' | 'cookie' | 'none';
+  acquire?: () => Promise<string>;
+}
+
+export interface DixieConfigV4 {
+  baseUrl: string;
+  appEntry?: string;
+  routes: string[];
+  auth: AuthStrategy;
+  mockDataDir?: string;
+}

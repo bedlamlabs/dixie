@@ -4,11 +4,13 @@ import * as fs from 'node:fs';
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
   // Expect two positional args: before.json and after.json
   const beforePath = args.url;
-  const afterPath = args.selector ?? args.rest[0];
+  const rest = args.rest ?? [];
+  const afterPath = args.selector ?? rest[0];
 
   if (!beforePath || !afterPath) {
     return {
       exitCode: 1,
+      data: { command: 'diff', error: 'diff requires two snapshot file paths' },
       errors: [{ code: 'MISSING_ARGS', message: 'diff requires two snapshot file paths' }],
     };
   }
@@ -22,6 +24,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   } catch (err: any) {
     return {
       exitCode: 1,
+      data: { command: 'diff', error: err.message },
       errors: [{ code: 'DIFF_ERROR', message: err.message }],
     };
   }

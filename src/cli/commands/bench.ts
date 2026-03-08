@@ -34,3 +34,27 @@ export async function runBenchmark(options: { html: string; iterations: number }
 
   return { timing: computeStats(timings), elementCount };
 }
+
+export async function execute(args: ParsedArgs): Promise<CommandResult> {
+  try {
+    const html = '<div><h1>Benchmark</h1><p>Test content</p></div>';
+    const iterations = args.samples ?? 5;
+    const result = await runBenchmark({ html, iterations });
+
+    return {
+      exitCode: 0,
+      data: {
+        command: 'bench',
+        status: 'ok',
+        iterations,
+        ...result,
+      },
+    };
+  } catch (err: any) {
+    return {
+      exitCode: 1,
+      data: { command: 'bench', error: err.message },
+      errors: [{ code: 'BENCH_ERROR', message: err.message }],
+    };
+  }
+}

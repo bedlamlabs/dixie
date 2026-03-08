@@ -5,6 +5,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
     return {
       exitCode: 1,
+      data: { command: 'mock-record', error: 'mock-record requires a URL' },
       errors: [{ code: 'MISSING_URL', message: 'mock-record requires a URL' }],
     };
   }
@@ -33,6 +34,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   } catch (err: any) {
     return {
       exitCode: 1,
+      data: { command: 'mock-record', error: err.message },
       errors: [{ code: err.code ?? 'RECORD_ERROR', message: err.message }],
     };
   }

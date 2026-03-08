@@ -64,10 +64,18 @@ describe('installGlobals', () => {
       }
     });
 
-    it('sets navigator on globalThis', () => {
+    it('sets navigator on globalThis (or skips if non-configurable)', () => {
       const installation = installGlobals(env);
       try {
-        expect((globalThis as any).navigator).toBe(env.navigator);
+        // In Node.js, globalThis.navigator is non-configurable.
+        // installGlobals uses safeSet which skips non-configurable properties.
+        const desc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+        if (desc && !desc.configurable && !desc.writable && !desc.set) {
+          // Navigator is non-configurable in this runtime — safeSet skips it
+          expect(typeof (globalThis as any).navigator).toBe('object');
+        } else {
+          expect((globalThis as any).navigator).toBe(env.navigator);
+        }
       } finally {
         installation.restore();
       }
@@ -153,10 +161,14 @@ describe('installGlobals', () => {
       }
     });
 
-    it('sets HTMLElement (alias for Element) on globalThis', () => {
+    it('sets HTMLElement on globalThis with correct instanceof behavior', () => {
       const installation = installGlobals(env);
       try {
-        expect((globalThis as any).HTMLElement).toBe(Element);
+        const HTMLElement = (globalThis as any).HTMLElement;
+        expect(typeof HTMLElement).toBe('function');
+        // Any Element should pass instanceof HTMLElement
+        const div = env.document.createElement('div');
+        expect(div instanceof HTMLElement).toBe(true);
       } finally {
         installation.restore();
       }
@@ -360,7 +372,8 @@ describe('installGlobals', () => {
       (globalThis as any).HTMLElement = original;
 
       const installation = installGlobals(env);
-      expect((globalThis as any).HTMLElement).toBe(Element);
+      // After install, HTMLElement should be a constructor (not the original)
+      expect((globalThis as any).HTMLElement).not.toBe(original);
 
       installation.restore();
       expect((globalThis as any).HTMLElement).toBe(original);

@@ -76,3 +76,32 @@ export async function runTestFile(filePath: string): Promise<RunResult> {
     };
   }
 }
+
+export async function execute(args: ParsedArgs): Promise<CommandResult> {
+  const filePath = args.file ?? args.url;
+  if (!filePath) {
+    return {
+      exitCode: 1,
+      data: { command: 'run', error: 'run requires a test file path' },
+      errors: [{ code: 'MISSING_FILE', message: 'run requires a test file path' }],
+    };
+  }
+
+  try {
+    const result = await runTestFile(filePath);
+    return {
+      exitCode: result.passed ? 0 : 1,
+      data: {
+        command: 'run',
+        status: result.passed ? 'ok' : 'failed',
+        ...result,
+      },
+    };
+  } catch (err: any) {
+    return {
+      exitCode: 1,
+      data: { command: 'run', error: err.message },
+      errors: [{ code: 'RUN_ERROR', message: err.message }],
+    };
+  }
+}

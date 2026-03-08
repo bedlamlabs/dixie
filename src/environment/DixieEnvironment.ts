@@ -131,6 +131,65 @@ const NOT_SET = Symbol('NOT_SET');
 
 // ── Factory ──────────────────────────────────────────────────────────────
 
+// ── Tag mapping for Symbol.hasInstance constructors ──────────────────
+
+const TAG_MAP: Record<string, string> = {
+  HTMLElement: '',
+  HTMLDivElement: 'DIV',
+  HTMLSpanElement: 'SPAN',
+  HTMLAnchorElement: 'A',
+  HTMLButtonElement: 'BUTTON',
+  HTMLInputElement: 'INPUT',
+  HTMLTextAreaElement: 'TEXTAREA',
+  HTMLSelectElement: 'SELECT',
+  HTMLFormElement: 'FORM',
+  HTMLIFrameElement: 'IFRAME',
+  HTMLImageElement: 'IMG',
+  HTMLLabelElement: 'LABEL',
+  HTMLOptionElement: 'OPTION',
+  HTMLTableElement: 'TABLE',
+  HTMLTableRowElement: 'TR',
+  HTMLTableCellElement: 'TD',
+  HTMLUListElement: 'UL',
+  HTMLOListElement: 'OL',
+  HTMLLIElement: 'LI',
+  HTMLParagraphElement: 'P',
+  HTMLHeadingElement: '',
+  HTMLPreElement: 'PRE',
+  HTMLCanvasElement: 'CANVAS',
+  HTMLVideoElement: 'VIDEO',
+  HTMLAudioElement: 'AUDIO',
+  HTMLSourceElement: 'SOURCE',
+  HTMLScriptElement: 'SCRIPT',
+  HTMLStyleElement: 'STYLE',
+  HTMLLinkElement: 'LINK',
+  HTMLMetaElement: 'META',
+  HTMLBodyElement: 'BODY',
+  HTMLHeadElement: 'HEAD',
+  HTMLHtmlElement: 'HTML',
+  HTMLTemplateElement: 'TEMPLATE',
+  HTMLSlotElement: 'SLOT',
+  HTMLDialogElement: 'DIALOG',
+  SVGElement: '',
+};
+
+function createHTMLConstructor(tagName: string) {
+  const ctor = function () {} as any;
+  Object.defineProperty(ctor, Symbol.hasInstance, {
+    value: (obj: unknown) => {
+      if (!(obj instanceof Element)) return false;
+      if (!tagName) return true;
+      return (obj as any).tagName === tagName;
+    },
+  });
+  return ctor;
+}
+
+const HTML_CONSTRUCTORS_MAP: Record<string, any> = {};
+for (const [name, tag] of Object.entries(TAG_MAP)) {
+  HTML_CONSTRUCTORS_MAP[name] = createHTMLConstructor(tag);
+}
+
 /**
  * Pre-built values object for installGlobals. Event/observer classes are
  * the same for every environment, so we only build this once. The remaining
@@ -154,8 +213,8 @@ const STATIC_GLOBALS: Readonly<Record<string, unknown>> = Object.freeze({
   MutationObserver,
   ResizeObserver,
   IntersectionObserver,
-  // All HTML element constructors map to Element for instanceof checks
-  ...Object.fromEntries(HTML_ELEMENT_NAMES.map(name => [name, Element])),
+  // HTML element constructors with Symbol.hasInstance for correct instanceof
+  ...HTML_CONSTRUCTORS_MAP,
 });
 
 export function createDixieEnvironment(options?: DixieEnvironmentOptions): DixieEnvironment {

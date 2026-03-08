@@ -3,7 +3,7 @@ import { VERSION } from '../src/index';
 
 describe('Dixie smoke test', () => {
   it('exports a version string', () => {
-    expect(VERSION).toBe('3.0.0');
+    expect(VERSION).toBe('4.0.0');
   });
 
   it('confirms test infrastructure works', () => {

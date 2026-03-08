@@ -1,4 +1,4 @@
-import type { ParsedArgs, CommandResult, DixieConfig } from '../types';
+import type { ParsedArgs, CommandResult, DixieConfig, DixieConfigV4 } from '../types';
 import { createDixieEnvironment } from '../../environment';
 import { createVmContext } from '../../execution/vm-context';
 import { loadScripts } from '../../execution/script-loader';
@@ -8,7 +8,7 @@ import * as path from 'node:path';
 
 export interface RenderOptions {
   token?: string;
-  config?: DixieConfig;
+  config?: DixieConfig | DixieConfigV4;
   timeout?: number;
   noJs?: boolean;
 }
@@ -54,21 +54,34 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     tokenSource = 'provided';
     tokenValue = token;
   } else if (config?.auth) {
-    // Try to acquire token from config auth
-    try {
-      const { TokenAcquisition } = await import('../../auth');
-      const ta = new TokenAcquisition(config.auth);
-      const result = await ta.acquire();
-      if (result.userToken && result.source === 'live') {
-        token = result.userToken;
-        tokenSource = 'config';
-      } else if (result.source === 'mock' && result.error) {
-        // Auth server unreachable — continue without auth
-        authMeta = { status: 'failed', reason: result.error };
+    // Check if this is a v4 AuthStrategy (has 'type' property)
+    const authConfig = config.auth as any;
+    if (authConfig.type && !authConfig.baseUrl) {
+      // v4 AuthStrategy — use acquire() directly if available
+      if (authConfig.type !== 'none' && authConfig.acquire) {
+        try {
+          token = await authConfig.acquire();
+          tokenSource = 'config';
+        } catch (err: any) {
+          authMeta = { status: 'failed', reason: err.message ?? String(err) };
+        }
       }
-    } catch (err: any) {
-      // Auth module error — continue without auth
-      authMeta = { status: 'failed', reason: err.message ?? String(err) };
+      // type === 'none' — no auth needed
+    } else {
+      // Legacy TokenConfig — try to acquire token from server
+      try {
+        const { TokenAcquisition } = await import('../../auth');
+        const ta = new TokenAcquisition(authConfig);
+        const result = await ta.acquire();
+        if (result.userToken && result.source === 'live') {
+          token = result.userToken;
+          tokenSource = 'config';
+        } else if (result.source === 'mock' && result.error) {
+          authMeta = { status: 'failed', reason: result.error };
+        }
+      } catch (err: any) {
+        authMeta = { status: 'failed', reason: err.message ?? String(err) };
+      }
     }
   }
 
@@ -89,9 +102,16 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       const response = await fetch(url, { headers });
       html = await response.text();
     } catch (err: any) {
-      const error = new Error(`Could not reach ${url}: ${err.message}`);
-      (error as any).code = 'FETCH_FAILED';
-      throw error;
+      // If a config was explicitly provided (v4 mode), degrade gracefully
+      // with an empty document instead of throwing
+      if (options?.config) {
+        html = '';
+        errors.push({ code: 'FETCH_FAILED', message: `Could not reach ${url}: ${err.message}` });
+      } else {
+        const error = new Error(`Could not reach ${url}: ${err.message}`);
+        (error as any).code = 'FETCH_FAILED';
+        throw error;
+      }
     }
   }
 
@@ -160,6 +180,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
     return {
       exitCode: 1,
+      data: { command: 'render', error: 'render requires a URL' },
       errors: [{ code: 'MISSING_URL', message: 'render requires a URL' }],
     };
   }
@@ -186,6 +207,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   } catch (err: any) {
     return {
       exitCode: 1,
+      data: { command: 'render', error: err.message },
       errors: [{ code: err.code ?? 'RENDER_ERROR', message: err.message }],
     };
   }

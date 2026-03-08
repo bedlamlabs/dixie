@@ -1,6 +1,6 @@
 {
   "name": "@bedlamlabs/dixie",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "CLI browser — render web pages, query DOM, run tests, all without a real browser",
   "type": "module",
   "main": "dist/index.js",
@@ -28,12 +28,12 @@
     "url": "https://github.com/bedlamlabs/dixie"
   },
   "license": "MIT",
-  "dependencies": {
-    "esbuild": "^0.27.3",
-    "js-yaml": "^4.1.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.27.3",
+    "js-yaml": "^4.1.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },

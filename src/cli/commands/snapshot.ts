@@ -44,6 +44,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
     return {
       exitCode: 1,
+      data: { command: 'snapshot', error: 'snapshot requires a URL' },
       errors: [{ code: 'MISSING_URL', message: 'snapshot requires a URL' }],
     };
   }
@@ -80,6 +81,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   } catch (err: any) {
     return {
       exitCode: 1,
+      data: { command: 'snapshot', error: err.message },
       errors: [{ code: err.code ?? 'SNAPSHOT_ERROR', message: err.message }],
     };
   }

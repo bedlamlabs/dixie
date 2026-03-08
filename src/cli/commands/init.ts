@@ -31,6 +31,23 @@ export default {
 };
 `;
 
+const DIXIE_CONFIG_TEMPLATE = `/**
+ * Dixie v4 config — app-specific settings for your project.
+ *
+ * This file is loaded by dixie at startup.
+ */
+import type { DixieConfigV4 } from 'dixie';
+
+const config: DixieConfigV4 = {
+  baseUrl: 'http://localhost:3000',
+  appEntry: './src/main.tsx',
+  routes: ['/'],
+  auth: { type: 'none' },
+};
+
+export default config;
+`;
+
 export interface InitResult {
   created: string[];
   skipped: string[];
@@ -69,4 +86,56 @@ export async function scaffoldInit(projectDir: string): Promise<InitResult> {
   }
 
   return result;
+}
+
+/**
+ * Execute init command. Supports dryRun mode for testing.
+ */
+export async function execute(args: {
+  command: string;
+  url?: string;
+  file?: string;
+  _?: string[];
+  format?: string;
+  dryRun?: boolean;
+  projectDir?: string;
+}): Promise<{ exitCode: number; data?: any; errors?: any[] }> {
+  const projectDir = args.projectDir ?? args.file ?? args.url ?? process.cwd();
+
+  if (args.dryRun) {
+    // Dry run: return what would be created without writing
+    const dixieConfigTemplate = DIXIE_CONFIG_TEMPLATE;
+    return {
+      exitCode: 0,
+      data: {
+        command: 'init',
+        status: 'ok',
+        files: {
+          'dixie.config.ts': dixieConfigTemplate,
+        },
+        config: {
+          template: 'dixie.config.ts',
+          dryRun: true,
+        },
+      },
+    };
+  }
+
+  try {
+    const result = await scaffoldInit(projectDir);
+    return {
+      exitCode: 0,
+      data: {
+        command: 'init',
+        status: 'ok',
+        ...result,
+      },
+    };
+  } catch (err: any) {
+    return {
+      exitCode: 1,
+      data: { command: 'init', error: err.message },
+      errors: [{ code: 'INIT_ERROR', message: err.message }],
+    };
+  }
 }

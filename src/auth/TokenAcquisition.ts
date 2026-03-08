@@ -39,20 +39,51 @@ function base64urlEncode(str: string): string {
 
 // ── Implementation ───────────────────────────────────────────────────
 
+export interface AuthStrategy {
+  type: 'bearer' | 'cookie' | 'none';
+  acquire?: () => Promise<string>;
+}
+
 export class TokenAcquisition {
-  private _config: TokenConfig;
+  private _config: TokenConfig | null;
+  private _strategy: AuthStrategy | null = null;
   private _cached: TokenResult | null = null;
 
-  constructor(config: TokenConfig) {
-    this._validateConfig(config);
-    this._config = config;
+  constructor(configOrStrategy: TokenConfig | AuthStrategy) {
+    if ('type' in configOrStrategy) {
+      // v4 AuthStrategy path
+      this._strategy = configOrStrategy;
+      this._config = null;
+    } else {
+      // Legacy TokenConfig path
+      this._validateConfig(configOrStrategy);
+      this._config = configOrStrategy;
+      this._strategy = null;
+    }
   }
 
   /**
-   * Acquire tokens from a real server. If the server is down or
-   * unreachable, gracefully degrade to mock tokens.
+   * Acquire tokens from a real server or via AuthStrategy.
+   * If constructed with AuthStrategy, delegates to the strategy's acquire().
+   * If the server is down or unreachable, gracefully degrade to mock tokens.
    */
-  async acquire(): Promise<TokenResult> {
+  async acquire(): Promise<TokenResult | string> {
+    // v4 AuthStrategy path
+    if (this._strategy) {
+      if (this._strategy.type === 'none') {
+        return '';
+      }
+      if (this._strategy.acquire) {
+        return this._strategy.acquire();
+      }
+      return '';
+    }
+
+    // Legacy TokenConfig path
+    return this._acquireLegacy();
+  }
+
+  private async _acquireLegacy(): Promise<TokenResult> {
     // Return cached if already acquired
     if (this._cached !== null) {
       return this._cached;
@@ -62,9 +93,9 @@ export class TokenAcquisition {
     const domainError = this._validateDomains();
     if (domainError) {
       const result: TokenResult = {
-        userToken: TokenAcquisition.generateMockToken({ email: this._config.credentials.email, role: 'user', mock: true }),
-        adminToken: this._config.adminCredentials
-          ? TokenAcquisition.generateMockToken({ email: this._config.adminCredentials.email, role: 'admin', mock: true })
+        userToken: TokenAcquisition.generateMockToken({ email: this._config!.credentials.email, role: 'user', mock: true }),
+        adminToken: this._config!.adminCredentials
+          ? TokenAcquisition.generateMockToken({ email: this._config!.adminCredentials.email, role: 'admin', mock: true })
           : null,
         source: 'mock',
         error: domainError,
@@ -73,22 +104,22 @@ export class TokenAcquisition {
       return result;
     }
 
-    const timeout = this._config.timeout ?? 5000;
+    const timeout = this._config!.timeout ?? 5000;
 
     try {
       // Acquire user token
       const userToken = await this._fetchToken(
-        this._config.baseUrl + this._config.loginEndpoint,
-        this._config.credentials,
+        this._config!.baseUrl + this._config!.loginEndpoint,
+        this._config!.credentials,
         timeout,
       );
 
       // Acquire admin token (if configured)
       let adminToken: string | null = null;
-      if (this._config.adminCredentials && this._config.adminLoginEndpoint) {
+      if (this._config!.adminCredentials && this._config!.adminLoginEndpoint) {
         adminToken = await this._fetchToken(
-          this._config.baseUrl + this._config.adminLoginEndpoint,
-          this._config.adminCredentials,
+          this._config!.baseUrl + this._config!.adminLoginEndpoint,
+          this._config!.adminCredentials,
           timeout,
         );
       }
@@ -106,9 +137,9 @@ export class TokenAcquisition {
 
       // Graceful degradation: return mock tokens
       const result: TokenResult = {
-        userToken: TokenAcquisition.generateMockToken({ email: this._config.credentials.email, role: 'user', mock: true }),
-        adminToken: this._config.adminCredentials
-          ? TokenAcquisition.generateMockToken({ email: this._config.adminCredentials.email, role: 'admin', mock: true })
+        userToken: TokenAcquisition.generateMockToken({ email: this._config!.credentials.email, role: 'user', mock: true }),
+        adminToken: this._config!.adminCredentials
+          ? TokenAcquisition.generateMockToken({ email: this._config!.adminCredentials.email, role: 'admin', mock: true })
           : null,
         source: 'mock',
         error: errorMessage,
@@ -177,19 +208,19 @@ export class TokenAcquisition {
    * Returns an error string if validation fails, null if OK.
    */
   private _validateDomains(): string | null {
-    const allowlist = this._config.domainAllowlist;
+    const allowlist = this._config!.domainAllowlist;
     if (!allowlist || allowlist.length === 0) {
       return null;
     }
 
-    const email = this._config.credentials.email;
+    const email = this._config!.credentials.email;
     const emailDomain = '@' + email.split('@')[1];
     if (!allowlist.some(d => emailDomain === d)) {
       return `Domain '${emailDomain}' not in allowlist: ${allowlist.join(', ')}`;
     }
 
-    if (this._config.adminCredentials) {
-      const adminEmail = this._config.adminCredentials.email;
+    if (this._config!.adminCredentials) {
+      const adminEmail = this._config!.adminCredentials.email;
       const adminDomain = '@' + adminEmail.split('@')[1];
       if (!allowlist.some(d => adminDomain === d)) {
         return `Admin domain '${adminDomain}' not in allowlist: ${allowlist.join(', ')}`;
