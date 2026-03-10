@@ -9,7 +9,7 @@ export interface RunResult {
   output?: any;
 }
 
-export async function runTestFile(filePath: string): Promise<RunResult> {
+export async function runTestFile(filePath: string, context?: { url?: string; configPath?: string }): Promise<RunResult> {
   const start = performance.now();
   const abs = path.resolve(filePath);
 
@@ -33,7 +33,7 @@ export async function runTestFile(filePath: string): Promise<RunResult> {
         const mod = await import(`file://${tmpFile}`);
         const testFn = mod.default;
         if (typeof testFn === 'function') {
-          const output = await testFn();
+          const output = await testFn(context);
           const durationMs = performance.now() - start;
           return {
             passed: output?.passed !== false,
@@ -54,7 +54,7 @@ export async function runTestFile(filePath: string): Promise<RunResult> {
     const mod = await import(`file://${abs}`);
     const testFn = mod.default;
     if (typeof testFn === 'function') {
-      const output = await testFn();
+      const output = await testFn(context);
       const durationMs = performance.now() - start;
       return {
         passed: output?.passed !== false,
@@ -87,7 +87,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
     };
   }
 
-  const result = await runTestFile(filePath);
+  const result = await runTestFile(filePath, { url: args.url, configPath: args.config });
   const output = formatOutput(result, args.format ?? 'json');
   return {
     exitCode: result.passed ? 0 : 1,

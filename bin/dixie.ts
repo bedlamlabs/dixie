@@ -1,11 +1,11 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 /**
  * Dixie CLI entry point.
  * Parses process.argv, dispatches to the appropriate command handler,
  * writes output to stdout, and exits with the command's exit code.
  */
 
-import { parseArgs, dispatch } from '../src/cli/index.js';
+import { parseArgs, dispatch } from '../src/cli/index.ts';
 
 const args = parseArgs(process.argv.slice(2));
 const result = await dispatch(args);

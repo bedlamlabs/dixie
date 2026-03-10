@@ -3,18 +3,19 @@
 **Package**: `@bedlamlabs/dixie`
 **Version**: 3.0.0
 **Date**: March 10, 2026
-**Final Status**: ✅ GO — READY TO SHIP
+**Final Status**: ✅ GO — READY TO SHIP *(updated after Pass 3)*
 
 ---
 
 ## Review History
 
-This package went through two full review passes before release. Both are documented here.
+This package went through three full review passes before release.
 
 | Pass | Reviewer | Date | Findings | Outcome |
 |------|----------|------|----------|---------|
 | Pass 1 | Claude Sonnet 4.6 (Anthropic) | March 2026 | 6 blockers, 8 high-priority, 7 non-blocking | All resolved in task 0.8170 |
-| Pass 2 | Codex (OpenAI) | March 10, 2026 | 5 CLI dispatch bugs, 7 non-blocking (overlap with Pass 1) | All resolved in triage 2026-03-10 |
+| Pass 2 | Codex (OpenAI) | March 10, 2026 | 5 CLI dispatch bugs, 7 non-blocking (overlap with Pass 1) | Resolved in triage 2026-03-10 |
+| Pass 3 | Codex (OpenAI) | March 10, 2026 | 4 residual issues — shebang, `./cli` export, query config, HAR VmContext, run URL context | All resolved (same session) |
 
 ---
 
@@ -98,6 +99,16 @@ Codex validated the actual shipping artifact using `npm pack --dry-run` and dire
 | #12 mock-*/snapshot smoke | 3 | mock-record exitCode 0 + entries; mock-replay elementCount; snapshot structureHash |
 
 **Total tests at ship time: 44 passing, 0 failing, 0 new regressions**
+
+### Pass 3 — Residual Issues Resolved (4 items)
+
+| # | Finding | Resolution |
+|---|---------|-----------|
+| R1 | **`bin/dixie.ts` shebang `#!/usr/bin/env node` fails on `.ts` source** — Node can't execute TypeScript directly; `.js` import extension also broken | Changed shebang to `#!/usr/bin/env tsx`; import changed from `index.js` to `index.ts` |
+| R2 | **`package.json` exports `./cli` to non-existent `src/cli/cli.ts`** | Corrected to `./src/cli/index.ts` |
+| R3 | **`query.ts` does not forward `args.config` to `renderUrl()`** — `--config` override silently ignored | Added `configPath: args.config` to `renderUrl()` options |
+| R4 | **`render.ts` does not pass `harRecorder` to `createVmContext()`** — in-page fetch() calls bypass HAR capture | `createVmContext()` now receives `harRecorder: options?.harRecorder` |
+| R5 | **`run.ts` does not pass URL or config to test function** — `dixie run smoke.ts https://example.com` provides no context to the loaded test | `runTestFile()` now accepts `context?: {url?, configPath?}`; passed through to `testFn(context)` |
 
 ---
 

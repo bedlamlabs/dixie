@@ -22,6 +22,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       token: args.token,
       timeout: args.timeout,
       noJs: args.noJs,
+      configPath: args.config,
     });
 
     const doc = result.document;
