@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.dixie-tmp.mjs
 .DS_Store
+.env
+.env.*
+*.log
+coverage/
+.vscode/
+.idea/

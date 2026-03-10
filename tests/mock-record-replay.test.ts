@@ -12,13 +12,13 @@ import { MockFetch } from '../src/fetch/MockFetch';
 // CLI parsing
 describe('mock-record — CLI parsing', () => {
   it('mock-record is a recognized command', () => {
-    const args = parseArgs(['mock-record', 'http://localhost:5001/projects']);
+    const args = parseArgs(['mock-record', 'http://localhost:3000/projects']);
     expect(args.command).toBe('mock-record');
-    expect(args.url).toBe('http://localhost:5001/projects');
+    expect(args.url).toBe('http://localhost:3000/projects');
   });
 
   it('accepts --out flag for HAR output path', () => {
-    const args = parseArgs(['mock-record', 'http://localhost:5001/projects', '--out', 'recording.har']);
+    const args = parseArgs(['mock-record', 'http://localhost:3000/projects', '--out', 'recording.har']);
     expect(args.command).toBe('mock-record');
     expect((args as any).snapshotOut).toBe('recording.har');
   });
@@ -26,12 +26,12 @@ describe('mock-record — CLI parsing', () => {
 
 describe('mock-replay — CLI parsing', () => {
   it('mock-replay is a recognized command', () => {
-    const args = parseArgs(['mock-replay', 'http://localhost:5001/projects']);
+    const args = parseArgs(['mock-replay', 'http://localhost:3000/projects']);
     expect(args.command).toBe('mock-replay');
   });
 
   it('accepts --har flag for HAR input file', () => {
-    const args = parseArgs(['mock-replay', 'http://localhost:5001/projects', '--har', 'recording.har']);
+    const args = parseArgs(['mock-replay', 'http://localhost:3000/projects', '--har', 'recording.har']);
     expect(args.command).toBe('mock-replay');
     expect((args as any).harFile).toBe('recording.har');
   });
@@ -63,7 +63,7 @@ describe('mock-replay — output', () => {
   it('reports pure render timing (no network wait)', async () => {
     const harEntries = [
       {
-        request: { method: 'GET', url: 'http://localhost:5001/api/test' },
+        request: { method: 'GET', url: 'http://localhost:3000/api/test' },
         response: {
           status: 200,
           content: { text: '{"data":"test"}', mimeType: 'application/json' },
@@ -102,14 +102,14 @@ describe('MockFetch.loadFromHar', () => {
   it('converts HAR entries to mock routes', () => {
     const harEntries = [
       {
-        request: { method: 'GET', url: 'http://localhost:5001/api/projects' },
+        request: { method: 'GET', url: 'http://localhost:3000/api/projects' },
         response: {
           status: 200,
           content: { text: '{"projects":[]}', mimeType: 'application/json' },
         },
       },
       {
-        request: { method: 'GET', url: 'http://localhost:5001/api/clients' },
+        request: { method: 'GET', url: 'http://localhost:3000/api/clients' },
         response: {
           status: 200,
           content: { text: '{"clients":[]}', mimeType: 'application/json' },
@@ -125,7 +125,7 @@ describe('MockFetch.loadFromHar', () => {
   it('replayed responses return correct status and body', async () => {
     const harEntries = [
       {
-        request: { method: 'GET', url: 'http://localhost:5001/api/test' },
+        request: { method: 'GET', url: 'http://localhost:3000/api/test' },
         response: {
           status: 200,
           content: { text: '{"value":42}', mimeType: 'application/json' },
@@ -134,7 +134,7 @@ describe('MockFetch.loadFromHar', () => {
     ];
 
     const mockFetch = MockFetch.loadFromHar(harEntries);
-    const response = await mockFetch.fetch('http://localhost:5001/api/test');
+    const response = await mockFetch.fetch('http://localhost:3000/api/test');
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -144,7 +144,7 @@ describe('MockFetch.loadFromHar', () => {
   it('matches by URL path regardless of query params (FLAW-010)', async () => {
     const harEntries = [
       {
-        request: { method: 'GET', url: 'http://localhost:5001/api/projects?page=1&limit=10' },
+        request: { method: 'GET', url: 'http://localhost:3000/api/projects?page=1&limit=10' },
         response: {
           status: 200,
           content: { text: '{"projects":["a"]}', mimeType: 'application/json' },
@@ -153,7 +153,7 @@ describe('MockFetch.loadFromHar', () => {
     ];
 
     const mockFetch = MockFetch.loadFromHar(harEntries);
-    const response = await mockFetch.fetch('http://localhost:5001/api/projects?page=2');
+    const response = await mockFetch.fetch('http://localhost:3000/api/projects?page=2');
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -166,7 +166,7 @@ describe('mock-replay — missing HAR entry (edge case)', () => {
   it('returns error entry when fetch URL has no recorded response', async () => {
     const harEntries = [
       {
-        request: { method: 'GET', url: 'http://localhost:5001/api/known' },
+        request: { method: 'GET', url: 'http://localhost:3000/api/known' },
         response: {
           status: 200,
           content: { text: '{}', mimeType: 'application/json' },
@@ -175,7 +175,7 @@ describe('mock-replay — missing HAR entry (edge case)', () => {
     ];
 
     const mockFetch = MockFetch.loadFromHar(harEntries);
-    const response = await mockFetch.fetch('http://localhost:5001/api/unknown');
+    const response = await mockFetch.fetch('http://localhost:3000/api/unknown');
 
     expect(response.status).toBe(404);
   });

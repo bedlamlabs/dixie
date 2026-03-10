@@ -108,7 +108,7 @@ describe('settle timing decomposition', () => {
 
 describe('benchmark --samples default', () => {
   it('default samples value is 5', () => {
-    const args = parseArgs(['bench', 'http://localhost:5001/']);
+    const args = parseArgs(['bench', 'http://localhost:3000/']);
     expect((args as any).samples).toBe(5);
   });
 });

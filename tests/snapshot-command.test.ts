@@ -9,13 +9,13 @@ import { parseArgs } from '../src/cli';
 
 describe('snapshot command — CLI parsing', () => {
   it('snapshot is a recognized command', () => {
-    const args = parseArgs(['snapshot', 'http://localhost:5001/projects']);
+    const args = parseArgs(['snapshot', 'http://localhost:3000/projects']);
     expect(args.command).toBe('snapshot');
-    expect(args.url).toBe('http://localhost:5001/projects');
+    expect(args.url).toBe('http://localhost:3000/projects');
   });
 
   it('accepts --out flag for output file path', () => {
-    const args = parseArgs(['snapshot', 'http://localhost:5001/projects', '--out', 'snapshot.json']);
+    const args = parseArgs(['snapshot', 'http://localhost:3000/projects', '--out', 'snapshot.json']);
     expect(args.command).toBe('snapshot');
     expect((args as any).snapshotOut).toBe('snapshot.json');
   });

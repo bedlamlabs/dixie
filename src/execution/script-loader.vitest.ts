@@ -13,7 +13,7 @@ import { createVmContext } from './vm-context';
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function makeCtx(html: string) {
-  const ctx = createVmContext({ timeout: 2000, url: 'http://localhost:5001/app/test' });
+  const ctx = createVmContext({ timeout: 2000, url: 'http://localhost:3000/dashboard' });
   ctx.document.body.innerHTML = html;
   return ctx;
 }
@@ -38,7 +38,7 @@ describe('script-loader: external scripts', () => {
     } as any);
 
     const ctx = makeCtx('<script src="/js/app.js"></script>');
-    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:5001/app/test' });
+    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:3000/dashboard' });
 
     expect(errors.filter(e => e.code !== 'SCRIPT_EXEC_ERROR')).toHaveLength(0);
     expect(ctx.window.__loaded).toBe(true);
@@ -52,9 +52,9 @@ describe('script-loader: external scripts', () => {
     });
 
     const ctx = makeCtx('<script src="/assets/vendor.js"></script>');
-    await loadScripts(ctx, { baseUrl: 'http://localhost:5001/app/test' });
+    await loadScripts(ctx, { baseUrl: 'http://localhost:3000/dashboard' });
 
-    expect(fetchedUrl).toBe('http://localhost:5001/assets/vendor.js');
+    expect(fetchedUrl).toBe('http://localhost:3000/assets/vendor.js');
   });
 
   it('forwards auth token in fetch headers', async () => {
@@ -68,7 +68,7 @@ describe('script-loader: external scripts', () => {
 
     const ctx = makeCtx('<script src="/js/app.js"></script>');
     await loadScripts(ctx, {
-      baseUrl: 'http://localhost:5001/',
+      baseUrl: 'http://localhost:3000/',
       token: 'test-jwt-token',
     });
 
@@ -83,7 +83,7 @@ describe('script-loader: external scripts', () => {
     } as any);
 
     const ctx = makeCtx('<script src="/missing.js"></script>');
-    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:5001/' });
+    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:3000/' });
 
     expect(errors).toHaveLength(1);
     expect(errors[0].code).toBe('SCRIPT_HTTP_ERROR');
@@ -94,7 +94,7 @@ describe('script-loader: external scripts', () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
 
     const ctx = makeCtx('<script src="/js/app.js"></script>');
-    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:5001/' });
+    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:3000/' });
 
     expect(errors).toHaveLength(1);
     expect(errors[0].code).toBe('SCRIPT_FETCH_ERROR');
@@ -106,7 +106,7 @@ describe('script-loader: external scripts', () => {
     globalThis.fetch = vi.fn();
 
     const ctx = makeCtx('<div>no scripts</div>');
-    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:5001/' });
+    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:3000/' });
 
     expect(errors).toHaveLength(0);
     expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe('script-loader: external scripts', () => {
     globalThis.fetch = vi.fn();
 
     const ctx = makeCtx('<script type="application/json" src="/data.json"></script>');
-    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:5001/' });
+    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:3000/' });
 
     expect(errors).toHaveLength(0);
     expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('script-loader: external scripts', () => {
     const ctx = makeCtx('<script src="/slow.js"></script><script src="/slow2.js"></script>');
     const pastDeadline = Date.now() - 1; // already expired
     const errors = await loadScripts(ctx, {
-      baseUrl: 'http://localhost:5001/',
+      baseUrl: 'http://localhost:3000/',
       deadline: pastDeadline,
     });
 
@@ -145,7 +145,7 @@ describe('script-loader: external scripts', () => {
       <script src="/broken.js"></script>
       <script>window.__inline = 'ran';</script>
     `);
-    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:5001/' });
+    const errors = await loadScripts(ctx, { baseUrl: 'http://localhost:3000/' });
 
     expect(errors.some(e => e.code === 'SCRIPT_HTTP_ERROR')).toBe(true);
     expect(ctx.window.__inline).toBe('ran');
@@ -173,20 +173,20 @@ describe('script-loader: inline scripts', () => {
 
 describe('vm-context: global availability', () => {
   it('exposes globalThis as the sandbox', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript('globalThis === window');
     expect(result.error).toBeUndefined();
   });
 
   it('exposes URL constructor', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript('window.__u = new URL("/path", "http://localhost").toString()');
     expect(result.error).toBeUndefined();
     expect(ctx.window.__u).toBe('http://localhost/path');
   });
 
   it('exposes MessageChannel for React scheduler', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript(
       'const ch = new MessageChannel(); window.__hasPort = ch.port1 !== undefined;',
     );
@@ -195,7 +195,7 @@ describe('vm-context: global availability', () => {
   });
 
   it('exposes requestAnimationFrame', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript(
       'window.__rafType = typeof requestAnimationFrame;',
     );
@@ -204,7 +204,7 @@ describe('vm-context: global availability', () => {
   });
 
   it('exposes fetch', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript('window.__fetchType = typeof fetch;');
     expect(result.error).toBeUndefined();
     expect(ctx.window.__fetchType).toBe('function');
@@ -213,7 +213,7 @@ describe('vm-context: global availability', () => {
 
 describe('event-loop-flush: flushReactRender', () => {
   it('returns immediately when DOM is already stable (non-SPA page)', async () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     ctx.document.body.innerHTML = '<h1>Server-rendered page</h1>';
 
     const result = await flushReactRender(ctx.document, { timeoutMs: 500, stableRounds: 3 });
@@ -225,7 +225,7 @@ describe('event-loop-flush: flushReactRender', () => {
   });
 
   it('detects DOM population from a deferred script (simulates React MessageChannel render)', async () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     ctx.document.body.innerHTML = '<div id="root"></div>';
 
     // Simulate React's deferred render: after one event loop turn, populate the root
@@ -246,7 +246,7 @@ describe('event-loop-flush: flushReactRender', () => {
   });
 
   it('detects multi-phase renders (initial render + data fetch re-render)', async () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     ctx.document.body.innerHTML = '<div id="root"></div>';
 
     // Phase 1: initial render (loading state)
@@ -271,7 +271,7 @@ describe('event-loop-flush: flushReactRender', () => {
   });
 
   it('times out gracefully when DOM never stabilizes (element count keeps growing)', async () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     ctx.document.body.innerHTML = '<div id="root"></div>';
 
     // Thrash at setImmediate speed — same as the polling interval — so element
@@ -296,7 +296,7 @@ describe('event-loop-flush: flushReactRender', () => {
   });
 
   it('exits quickly on non-SPA pages (no #root present)', async () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     ctx.document.body.innerHTML = '<nav>Nav</nav><main>Content</main>';
 
     const start = Date.now();
@@ -315,7 +315,7 @@ describe('event-loop-flush: flushReactRender', () => {
 
 describe('vm-context: addEventListener wired to EventTarget', () => {
   it('addEventListener does not throw (React Router requirement)', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript(`
       window.addEventListener('popstate', function() {});
       window.__listenerAdded = true;
@@ -325,7 +325,7 @@ describe('vm-context: addEventListener wired to EventTarget', () => {
   });
 
   it('dispatchEvent fires listeners added via addEventListener', () => {
-    const ctx = createVmContext({ url: 'http://localhost:5001/' });
+    const ctx = createVmContext({ url: 'http://localhost:3000/' });
     const result = ctx.executeScript(`
       window.__fired = false;
       window.addEventListener('test-event', function(e) {
@@ -343,7 +343,7 @@ describe('vm-context: addEventListener wired to EventTarget', () => {
 describe('CLI --text flag: query command', () => {
   it('parses --text flag from argv', async () => {
     const { parseArgs } = await import('../cli/index');
-    const args = parseArgs(['query', 'http://localhost:5001/', '--text', 'PayPal']);
+    const args = parseArgs(['query', 'http://localhost:3000/', '--text', 'PayPal']);
     expect(args.text).toBe('PayPal');
     expect(args.command).toBe('query');
   });

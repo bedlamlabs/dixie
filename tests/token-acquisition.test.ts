@@ -11,9 +11,9 @@ describe('TokenAcquisition', () => {
 
   function makeConfig(overrides?: Partial<TokenConfig>): TokenConfig {
     return {
-      baseUrl: 'http://localhost:5001',
+      baseUrl: 'http://localhost:3000',
       loginEndpoint: '/api/auth/login',
-      credentials: { email: 'test@bedl.am', password: 'test123' },
+      credentials: { email: 'test@example.com', password: 'test123' },
       ...overrides,
     };
   }
@@ -70,7 +70,7 @@ describe('TokenAcquisition', () => {
     it('rejects credentials with email domain not in allowlist', async () => {
       const config = makeConfig({
         credentials: { email: 'hacker@evil.com', password: 'pass' },
-        domainAllowlist: ['@bedl.am', '@thriveos.pro'],
+        domainAllowlist: ['@example.com', '@example.com'],
       });
 
       const ta = new TokenAcquisition(config);
@@ -84,8 +84,8 @@ describe('TokenAcquisition', () => {
     it('accepts credentials with email domain in allowlist', async () => {
       // This will still fail to connect (no server), but the domain check passes
       const config = makeConfig({
-        credentials: { email: 'test@bedl.am', password: 'pass' },
-        domainAllowlist: ['@bedl.am'],
+        credentials: { email: 'test@example.com', password: 'pass' },
+        domainAllowlist: ['@example.com'],
         timeout: 100,
       });
 
@@ -100,10 +100,10 @@ describe('TokenAcquisition', () => {
 
     it('rejects admin credentials with domain not in allowlist', async () => {
       const config = makeConfig({
-        credentials: { email: 'test@bedl.am', password: 'pass' },
+        credentials: { email: 'test@example.com', password: 'pass' },
         adminCredentials: { email: 'admin@evil.com', password: 'pass' },
         adminLoginEndpoint: '/api/admin/auth/login',
-        domainAllowlist: ['@bedl.am'],
+        domainAllowlist: ['@example.com'],
       });
 
       const ta = new TokenAcquisition(config);
@@ -229,7 +229,7 @@ describe('TokenAcquisition', () => {
     it('admin token is generated when admin credentials are configured', async () => {
       const config = makeConfig({
         baseUrl: 'http://127.0.0.1:19999',
-        adminCredentials: { email: 'admin@bedl.am', password: 'admin123' },
+        adminCredentials: { email: 'admin@example.com', password: 'admin123' },
         adminLoginEndpoint: '/api/admin/auth/login',
         timeout: 200,
       });
@@ -321,7 +321,7 @@ describe('TokenAcquisition', () => {
     it('user and admin tokens contain different roles in payload', async () => {
       const config = makeConfig({
         baseUrl: 'http://127.0.0.1:19999',
-        adminCredentials: { email: 'admin@bedl.am', password: 'admin123' },
+        adminCredentials: { email: 'admin@example.com', password: 'admin123' },
         adminLoginEndpoint: '/api/admin/auth/login',
         timeout: 200,
       });
@@ -340,8 +340,8 @@ describe('TokenAcquisition', () => {
 
       expect(userPayload.role).toBe('user');
       expect(adminPayload.role).toBe('admin');
-      expect(userPayload.email).toBe('test@bedl.am');
-      expect(adminPayload.email).toBe('admin@bedl.am');
+      expect(userPayload.email).toBe('test@example.com');
+      expect(adminPayload.email).toBe('admin@example.com');
     });
   });
 
@@ -437,7 +437,7 @@ describe('TokenAcquisition', () => {
       }) as any;
 
       const config = makeConfig({
-        adminCredentials: { email: 'admin@bedl.am', password: 'admin123' },
+        adminCredentials: { email: 'admin@example.com', password: 'admin123' },
         adminLoginEndpoint: '/api/admin/auth/login',
       });
 

@@ -10,7 +10,7 @@ import { parseArgs } from '../src/cli';
 
 // Snapshot fixtures
 const SNAPSHOT_LOCAL = {
-  meta: { url: 'http://localhost:5001/projects', timestamp: '2026-03-07T10:00:00Z', env: 'localhost' },
+  meta: { url: 'http://localhost:3000/projects', timestamp: '2026-03-07T10:00:00Z', env: 'localhost' },
   dom: {
     tagCounts: { DIV: 45, P: 12, BUTTON: 8, TABLE: 2, TR: 20, TD: 60 },
     structureHash: 'abc123def456',
@@ -27,7 +27,7 @@ const SNAPSHOT_LOCAL = {
 };
 
 const SNAPSHOT_PROD = {
-  meta: { url: 'https://thriveos.pro/projects', timestamp: '2026-03-07T10:01:00Z', env: 'production' },
+  meta: { url: 'https://example.com/projects', timestamp: '2026-03-07T10:01:00Z', env: 'production' },
   dom: {
     tagCounts: { DIV: 45, P: 12, BUTTON: 8, TABLE: 2, TR: 22, TD: 66 },
     structureHash: 'abc123def456',
@@ -108,8 +108,8 @@ describe('diff — meta differences', () => {
     const urlChange = result.changes.find(c => c.path?.includes('url'));
 
     expect(urlChange).not.toBeUndefined();
-    expect(urlChange!.before).toBe('http://localhost:5001/projects');
-    expect(urlChange!.after).toBe('https://thriveos.pro/projects');
+    expect(urlChange!.before).toBe('http://localhost:3000/projects');
+    expect(urlChange!.after).toBe('https://example.com/projects');
   });
 });
 
