@@ -1,8 +1,25 @@
 # Dixie
 
-DOM-level CLI browser for AI agents. Render pages, query elements, run tests, capture network activity — all without a real browser.
+Most browsers are designed for humans.
 
-Dixie builds a complete browser environment from scratch: DOM tree, CSS selectors, events, forms, observers, timers, fetch, storage, and navigation. No Chromium. No jsdom. No happy-dom. Just a fast, predictable DOM engine that agents can drive programmatically.
+Dixie is a browser designed for agents.
+
+Dixie is a DOM-level CLI browser that renders web pages, executes scripts, and exposes the entire page as structured data agents can query, test, and manipulate.
+Instead of automating a real browser, Dixie implements the browser environment itself — including the DOM tree, CSS selector engine, events, forms, observers, timers, fetch, storage, and navigation.
+
+This allows agents to:
+- render pages
+- query elements
+- simulate interactions
+- capture network activity
+- run test scripts
+- analyze structure and accessibility
+
+All from a fast, deterministic CLI environment.
+No Chromium.
+No jsdom.
+No browser automation layer.
+Just a programmable DOM engine built for machines.
 
 ## What Dixie Does
 
