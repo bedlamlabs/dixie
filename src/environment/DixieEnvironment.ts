@@ -236,7 +236,9 @@ export function createDixieEnvironment(options?: DixieEnvironmentOptions): Dixie
     innerHeight: height,
   });
 
-  // 3. Wire cross-references
+  // 3. Wire cross-references — also populate window with DOM constructors so
+  // that env.window.MutationObserver etc. work without calling installGlobals()
+  Object.assign(window, STATIC_GLOBALS);
   window.document = document;
   // Set document.defaultView if the Document supports it
   if ('defaultView' in document) {

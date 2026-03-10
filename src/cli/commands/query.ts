@@ -14,6 +14,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   }
 
   const selector = args.selector ?? '';
+  const textSearch = args.text;
 
   try {
     const result = await renderUrl(args.url, {
@@ -23,6 +24,33 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
     });
 
     const doc = result.document;
+
+    // ── Text search: find elements whose textContent contains the string ──
+    if (textSearch !== undefined) {
+      const needle = textSearch.toLowerCase();
+      const all = Array.from(doc.querySelectorAll('*'));
+      const matches = (all as any[]).filter((el: any) => {
+        const text = (el.textContent ?? '').toLowerCase();
+        return text.includes(needle);
+      });
+      const results = matches.map((el: any) => ({
+        tagName: el.tagName?.toLowerCase() ?? 'unknown',
+        text: (el.textContent ?? '').trim().slice(0, 200),
+        id: el.getAttribute?.('id') ?? undefined,
+      }));
+      return {
+        exitCode: results.length > 0 ? 0 : 1,
+        data: {
+          command: 'query',
+          status: results.length > 0 ? 'found' : 'not-found',
+          strategy: 'text',
+          search: textSearch,
+          count: results.length,
+          results,
+        },
+      };
+    }
+
     let elements: any[] = [];
 
     if (!selector) {

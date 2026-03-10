@@ -88,6 +88,8 @@ export class RenderContext {
   private _parseMs: number = 0;
   private _renderMs: number = 0;
   private _destroyed = false;
+  // Stored at construction time so destroy() can compare by reference (not re-bind)
+  private _boundFetch!: (...args: any[]) => any;
 
   constructor(options?: { mockRoutes?: Record<string, any> }) {
     this._startTime = Date.now();
@@ -107,8 +109,10 @@ export class RenderContext {
       }
     }
 
-    // Install fetch globally
-    (globalThis as any).fetch = this.fetch.fetch.bind(this.fetch);
+    // Store the bound reference at construction time so destroy() can
+    // compare by identity (not create a new bound function each time).
+    this._boundFetch = this.fetch.fetch.bind(this.fetch);
+    (globalThis as any).fetch = this._boundFetch;
   }
 
   /**
@@ -296,8 +300,9 @@ export class RenderContext {
 
     this.console.uninstall();
 
-    // Remove global fetch
-    if ((globalThis as any).fetch === this.fetch.fetch.bind(this.fetch)) {
+    // Remove global fetch — compare by the stored reference (bind() creates a new
+    // function each call, so re-binding here would always compare unequal)
+    if ((globalThis as any).fetch === this._boundFetch) {
       delete (globalThis as any).fetch;
     }
 

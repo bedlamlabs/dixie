@@ -2,6 +2,8 @@ export interface ParsedArgs {
   command: string;
   url?: string;
   selector?: string;
+  /** Text content to search for within the rendered DOM */
+  text?: string;
   file?: string;
   format: 'json' | 'yaml' | 'markdown' | 'csv';
   token?: string;
@@ -29,6 +31,24 @@ export interface DixieConfig {
     baseUrl: string;
     loginEndpoint: string;
     credentials: { email: string; password: string };
+    [key: string]: any;
+  };
+  /**
+   * SPA rendering options — controls how the CLI waits for a JavaScript
+   * framework to finish mounting before querying the DOM.
+   */
+  spa?: {
+    /**
+     * CSS selector that must be present before the DOM is considered stable.
+     * Defaults to '#root > *' (Vite / CRA convention).
+     *
+     * Common values:
+     *   '#root > *'    — Vite, Create React App, Remix
+     *   '#__next > *'  — Next.js
+     *   '#app > *'     — Vue CLI
+     *   'app-root'     — Angular
+     */
+    mountSelector?: string;
   };
   mockRoutes?: Record<string, any>;
   noisePatterns?: string[];

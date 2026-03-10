@@ -1,6 +1,7 @@
 import type { ParsedArgs, CommandResult } from '../types';
 import { renderUrl } from './render';
 import { createHash } from 'node:crypto';
+import { formatOutput } from '../format';
 
 function buildDomSummary(document: any): { tagCounts: Record<string, number>; structureHash: string; textContent: string } {
   const tagCounts: Record<string, number> = {};
@@ -73,8 +74,10 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       data,
     };
 
+    const output = formatOutput(snapshot, args.format ?? 'json');
     return {
       exitCode: 0,
+      output,
       data: snapshot,
       errors: result.errors.length > 0 ? result.errors : undefined,
     };

@@ -6,7 +6,7 @@ Dixie builds a complete browser environment from scratch: DOM tree, CSS selector
 
 ## What Dixie Does
 
-- **Renders web pages** — fetches HTML, parses it into a DOM tree, executes inline scripts
+- **Renders web pages** — fetches HTML, parses it into a DOM tree, fetches and executes scripts (including Vite/webpack bundles via esbuild), flushes React's async scheduler
 - **Queries the DOM** — CSS selectors, test IDs, ARIA roles, labels
 - **Interacts with elements** — click, type, select (no real UI, just DOM mutations)
 - **Captures everything** — console output, network calls (HAR 1.2), errors, accessibility issues
@@ -14,7 +14,6 @@ Dixie builds a complete browser environment from scratch: DOM tree, CSS selector
 - **Benchmarks DOM operations** — parse/query/mutate timing with percentile stats
 - **Diffs snapshots** — structural comparison of two DOM captures
 - **Formats output** — JSON, YAML, Markdown, CSV (agents pick their format)
-- **Vitest environment** — drop-in replacement for jsdom/happy-dom in test suites
 
 ## Install
 
@@ -27,6 +26,11 @@ npm install
 ```
 
 ## CLI Usage
+
+> **Security notice:** Dixie executes page scripts inside a Node.js `vm` sandbox.
+> This sandbox is **not an isolation boundary** — rendered page code can access the host
+> Node.js process via prototype chain escapes. Node's `vm` module explicitly provides
+> no security guarantees. Only render pages from sources you trust.
 
 ```
 dixie <command> [url] [selector] [options]
@@ -43,6 +47,9 @@ If the first argument is a URL, the command defaults to `render`.
 | `run` | Execute a test file (`.ts`/`.js`) against a URL | Full |
 | `bench` | Benchmark DOM parse/query/mutate operations | Full |
 | `diff` | Compare two DOM snapshots structurally | Full |
+| `mock-record` | Render a URL and record network activity to a HAR file | Full |
+| `mock-replay` | Replay a HAR file as mock routes while rendering a URL | Full |
+| `snapshot` | Capture a DOM snapshot (structure hash + text summary) | Full |
 | `init` | Scaffold a `.dixie/` config directory for a project | Full |
 | `a11y` | Accessibility audit (missing alt, labels, ARIA) | Collector |
 | `css-audit` | CSS analysis (unused selectors, specificity) | Collector |
@@ -71,8 +78,9 @@ If the first argument is a URL, the command defaults to `render`.
 | `--timeout <ms>` | Request/operation timeout in milliseconds | `5000` |
 | `--config <path>` | Path to config file (`.dixie/*.ts`) | auto-detected |
 | `--filter <str>` | Filter results by string match | — |
+| `--text <string>` | (`query` only) Find elements whose text content contains this string | — |
 | `--selector-strategy <s>` | Query strategy: `css`, `testId`, `role`, `label` | `css` |
-| `--no-js` | Skip inline script execution | `false` |
+| `--no-js` | Skip script execution entirely | `false` |
 | `--parallel` | Run operations in parallel where possible | `false` |
 | `--verbose` | Verbose output | `false` |
 | `--bail` | Stop on first error | `false` |
@@ -83,30 +91,42 @@ If the first argument is a URL, the command defaults to `render`.
 ### Examples
 
 ```bash
-# Render a page, get JSON structure
-dixie render http://localhost:5001/app/clients --token $TOKEN
+# Render a page, get JSON structure (works for React SPAs — scripts are fetched and executed)
+dixie render https://example.com/dashboard --token $TOKEN
 
-# Query for all buttons on a page
-dixie query http://localhost:5001/app/projects button --format yaml
+# Query by CSS selector
+dixie query https://example.com/projects button --format yaml
+
+# Find elements by text content (exitCode 1 when not found — CI-friendly)
+dixie query https://example.com/settings --text "Subscribe"
 
 # Find elements by test ID
-dixie query http://localhost:5001/app/invoices "[data-testid='invoice-row']" \
+dixie query https://example.com/invoices "[data-testid='invoice-row']" \
   --selector-strategy testId
 
 # Run a test file against a URL
-dixie run smoke.ts --config .dixie/localhost.5001.ts
+dixie run smoke.ts --config .dixie/example.com.ts
 
-# Benchmark DOM parsing (1000 iterations)
-dixie bench http://localhost:5001/app/dashboard
+# Benchmark DOM parsing (100 iterations)
+dixie bench https://example.com/dashboard
 
 # Compare two snapshots
 dixie diff snapshot-before.json snapshot-after.json --format markdown
 
+# Record network activity as HAR
+dixie mock-record https://example.com/dashboard --token $TOKEN > session.har
+
+# Replay a HAR file as mock routes
+dixie mock-replay https://example.com/dashboard session.har
+
+# Capture a DOM snapshot
+dixie snapshot https://example.com/dashboard --format yaml
+
 # Accessibility audit
-dixie a11y http://localhost:5001/app/settings --format yaml
+dixie a11y https://example.com/settings --format yaml
 
 # Extract all links
-dixie links http://localhost:5001/app/clients --format csv
+dixie links https://example.com/clients --format csv
 
 # Scaffold a config directory
 dixie init
@@ -118,15 +138,15 @@ Agents call Dixie as a subprocess and parse structured output:
 
 ```bash
 # Agent gets page structure as JSON
-RESULT=$(dixie render https://app.example.com/dashboard \
+RESULT=$(dixie render https://example.com/dashboard \
   --token "$JWT" --format json)
 
 # Agent queries for specific elements
-BUTTONS=$(dixie query https://app.example.com/dashboard \
+BUTTONS=$(dixie query https://example.com/dashboard \
   "button[data-action]" --format json)
 
 # Agent runs a test script
-dixie run check-login-flow.ts --config .dixie/prod.ts --format yaml
+dixie run check-login-flow.ts --config .dixie/example.com.ts --format yaml
 ```
 
 Agents can also use Dixie programmatically via import:
@@ -135,10 +155,10 @@ Agents can also use Dixie programmatically via import:
 import { createDixieEnvironment, renderUrl, getByTestId } from '@bedlamlabs/dixie';
 
 // Create an isolated browser environment
-const env = createDixieEnvironment({ url: 'http://localhost:3000' });
+const env = createDixieEnvironment({ url: 'https://example.com' });
 
 // Render a page
-const result = await renderUrl('http://localhost:3000/dashboard', {
+const result = await renderUrl('https://example.com/dashboard', {
   token: process.env.AUTH_TOKEN,
 });
 
@@ -186,7 +206,7 @@ import type { DixieConfig } from '@bedlamlabs/dixie';
 
 const config: DixieConfig = {
   auth: {
-    baseUrl: 'http://localhost:5001',
+    baseUrl: 'https://example.com',
     loginEndpoint: '/api/auth/login',
     credentials: {
       email: 'test@example.com',
@@ -217,6 +237,12 @@ Dixie's DOM is built from scratch — not a wrapper around jsdom or any other im
 **CSS**: CSSStyleDeclaration, selector engine (tag, class, id, attribute, pseudo-class, combinators)
 **Parser**: HTML parser and serializer
 **Network**: Mock fetch, HAR recorder, EventSource stub, WebSocket stub
+
+## Known Limitations
+
+- **No layout engine** — `getBoundingClientRect`, `offsetWidth`, `offsetHeight`, `scrollWidth`, and all geometry APIs return zero values. CSS box sizing is not computed.
+- **No painting** — `<canvas>`, WebGL, and SVG rendering are not evaluated.
+- **CSS transitions not applied** — `getComputedStyle` returns inline styles only; cascade, media queries, and computed values are not resolved.
 
 ## Architecture
 

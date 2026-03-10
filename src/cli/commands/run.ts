@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import type { ParsedArgs, CommandResult } from '../types';
+import { formatOutput } from '../format';
 
 export interface RunResult {
   passed: boolean;
@@ -75,4 +76,22 @@ export async function runTestFile(filePath: string): Promise<RunResult> {
       error: isSyntax ? `Syntax error: ${err.message}` : err.message,
     };
   }
+}
+
+export async function execute(args: ParsedArgs): Promise<CommandResult> {
+  const filePath = args.url;
+  if (!filePath) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'MISSING_FILE', message: 'run requires a file path' }],
+    };
+  }
+
+  const result = await runTestFile(filePath);
+  const output = formatOutput(result, args.format ?? 'json');
+  return {
+    exitCode: result.passed ? 0 : 1,
+    output,
+    data: result,
+  };
 }

@@ -10,6 +10,7 @@ import { _getElementsByClassName, _getElementsByTagName } from './Document';
 import { parseHTML } from '../parser/HTMLParser';
 import { serializeHTML } from '../parser/HTMLSerializer';
 import { Event } from '../events/Event';
+import { triggerMutation } from '../observers/MutationObserver';
 import {
   parseSelector,
   matchesSelector,
@@ -145,6 +146,7 @@ export class Element extends Node {
     const strValue = String(value);
     const existing = this._attributes.getNamedItem(lower);
     if (existing) {
+      const oldValue = existing.value;
       // Update id index if changing an id
       if (lower === 'id') {
         const doc = this.ownerDocument;
@@ -160,6 +162,7 @@ export class Element extends Node {
       }
       existing.value = strValue;
       this._notifyMutation();
+      triggerMutation('attributes', this, { attributeName: lower, oldValue });
     } else {
       const attr = new Attr(lower, strValue);
       attr.ownerElement = this;
@@ -172,6 +175,7 @@ export class Element extends Node {
         }
       }
       this._notifyMutation();
+      triggerMutation('attributes', this, { attributeName: lower, oldValue: null });
     }
   }
 
@@ -179,6 +183,7 @@ export class Element extends Node {
     const lower = name.toLowerCase();
     const attr = this._attributes.getNamedItem(lower);
     if (attr) {
+      const oldValue = attr.value;
       // Update id index if removing an id
       if (lower === 'id') {
         const doc = this.ownerDocument;
@@ -191,6 +196,7 @@ export class Element extends Node {
       }
       this._attributes.removeNamedItem(lower);
       this._notifyMutation();
+      triggerMutation('attributes', this, { attributeName: lower, oldValue });
     }
   }
 
@@ -544,8 +550,9 @@ export class Element extends Node {
 
   private _getOwnerDocument(): any {
     if (this.ownerDocument) return this.ownerDocument;
-    // Fallback: create a minimal Document
-    const { Document } = require('./Document');
-    return new Document();
+    // Document.createElement() always sets ownerDocument before returning.
+    // If ownerDocument is unset, this element is orphaned — return null honestly
+    // rather than creating a silent fallback Document via require() (circular dep).
+    return null;
   }
 }

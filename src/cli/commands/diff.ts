@@ -1,3 +1,6 @@
+import type { ParsedArgs, CommandResult } from '../types';
+import { formatOutput } from '../format';
+
 export interface DiffChange {
   type: 'added' | 'removed' | 'changed';
   scope?: string;
@@ -101,4 +104,32 @@ function deepEqual(a: any, b: any): boolean {
     return keysA.every(k => deepEqual(a[k], b[k]));
   }
   return false;
+}
+
+export async function execute(args: ParsedArgs): Promise<CommandResult> {
+  // Support both `rest` (CLI positionals) and `args` (testing shorthand)
+  const positions: string[] = (args as any).args ?? args.rest ?? [];
+  const fileA = positions[0] ?? args.url ?? '';
+  const fileB = positions[1] ?? '';
+
+  if (!fileA || !fileB) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'MISSING_ARGS', message: 'diff requires two file paths' }],
+    };
+  }
+
+  try {
+    const { readFileSync } = await import('node:fs');
+    const before = JSON.parse(readFileSync(fileA, 'utf-8'));
+    const after = JSON.parse(readFileSync(fileB, 'utf-8'));
+    const result = diffSnapshots(before, after);
+    const output = formatOutput(result, args.format ?? 'json');
+    return { exitCode: 0, output, data: result };
+  } catch (err: any) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'DIFF_ERROR', message: err.message }],
+    };
+  }
 }

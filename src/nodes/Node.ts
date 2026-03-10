@@ -1,5 +1,6 @@
 import { NodeList } from './NodeList';
 import { EventTarget } from '../events/EventTarget';
+import { triggerMutation } from '../observers/MutationObserver';
 
 /**
  * Node — the base class of the DOM tree.
@@ -159,6 +160,7 @@ export class Node extends EventTarget {
     }
 
     this._notifyMutation();
+    triggerMutation('childList', this, { addedNodes: [child] });
 
     return child;
   }
@@ -238,6 +240,7 @@ export class Node extends EventTarget {
     }
 
     this._notifyMutation();
+    triggerMutation('childList', this, { addedNodes: [newChild] });
 
     return newChild;
   }
@@ -309,6 +312,7 @@ export class Node extends EventTarget {
     newChild.parentNode = this;
     this._children[replaceIndex] = newChild;
     this._notifyMutation();
+    triggerMutation('childList', this, { addedNodes: [newChild], removedNodes: [oldChild] });
 
     return oldChild;
   }
@@ -393,6 +397,7 @@ export class Node extends EventTarget {
 
     this._children.splice(index, 1);
     this._notifyMutation();
+    triggerMutation('childList', this, { removedNodes: [child] });
   }
 }
 

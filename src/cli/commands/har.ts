@@ -2,6 +2,7 @@ import type { ParsedArgs, CommandResult } from '../types';
 import { renderUrl } from './render';
 import { HarRecorder } from '../../har/recorder';
 import { exportHar } from '../../har/exporter';
+import { formatOutput } from '../format';
 
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
@@ -19,13 +20,13 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       token: args.token,
       timeout: args.timeout,
       noJs: args.noJs,
+      harRecorder: recorder,
     });
 
     const har = exportHar(recorder);
-    return {
-      exitCode: 0,
-      data: { command: 'har', status: 'ok', ...har },
-    };
+    const data = { command: 'har', status: 'ok', ...har };
+    const output = formatOutput(data, args.format ?? 'json');
+    return { exitCode: 0, output, data };
   } catch (err: any) {
     return {
       exitCode: 1,

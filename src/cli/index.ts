@@ -65,6 +65,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       args.filter = argv[++i];
     } else if (arg === '--selector-strategy' && i + 1 < argv.length) {
       args.selectorStrategy = argv[++i] as any;
+    } else if (arg === '--text' && i + 1 < argv.length) {
+      args.text = argv[++i];
     } else if (arg === '--no-js') {
       args.noJs = true;
     } else if (arg === '--parallel') {
