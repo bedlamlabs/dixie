@@ -85,10 +85,9 @@ If the first argument is a URL, the command defaults to `render`.
 | `click` | Simulate a click on a selector | Interaction |
 | `type` | Type text into an input element | Interaction |
 | `select` | Select an option in a dropdown | Interaction |
-| `inspect` | Detailed inspection of a single element | Stub |
-| `component` | Component-level render and assertion | Stub |
-| `fidelity` | Visual diff against a reference screenshot | Stub |
-| `lighthouse` | Performance scoring (Dixie-native, no Chrome) | Stub |
+| `inspect` | Detailed inspection of a single element | Full |
+| `component` | Component-level render and assertion | Full |
+| `lighthouse` | Performance scoring (Dixie-native, no Chrome) | Full |
 | `har` | Export captured network activity as HAR 1.2 | Full |
 | `redact` | Strip sensitive data from snapshots/headers | Full |
 
