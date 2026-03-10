@@ -130,6 +130,7 @@ export class Element extends Node {
     const attr = new Attr(name, value);
     attr.ownerElement = this;
     this._attributes._attrs.push(attr);
+    (this._attributes as any)._map.set(name, attr);
   }
 
   get attributes(): NamedNodeMap {
@@ -144,20 +145,15 @@ export class Element extends Node {
   setAttribute(name: string, value: string): void {
     const lower = name.toLowerCase();
     const strValue = String(value);
-    const existing = this._attributes.getNamedItem(lower);
+    const map = (this._attributes as any)._map;
+    const existing = map.get(lower);
     if (existing) {
       const oldValue = existing.value;
-      // Update id index if changing an id
       if (lower === 'id') {
         const doc = this.ownerDocument;
         if (doc && doc._idIndex) {
-          const oldId = existing.value;
-          if (oldId && doc._idIndex.get(oldId) === this) {
-            doc._idIndex.delete(oldId);
-          }
-          if (strValue && !doc._idIndex.has(strValue)) {
-            doc._idIndex.set(strValue, this);
-          }
+          if (oldValue && doc._idIndex.get(oldValue) === this) doc._idIndex.delete(oldValue);
+          if (strValue && !doc._idIndex.has(strValue)) doc._idIndex.set(strValue, this);
         }
       }
       existing.value = strValue;
@@ -166,13 +162,11 @@ export class Element extends Node {
     } else {
       const attr = new Attr(lower, strValue);
       attr.ownerElement = this;
-      this._attributes.setNamedItem(attr);
-      // Update id index for new id attribute — only if no other element owns this ID
+      this._attributes._attrs.push(attr);
+      map.set(lower, attr);
       if (lower === 'id' && strValue) {
         const doc = this.ownerDocument;
-        if (doc && doc._idIndex && !doc._idIndex.has(strValue)) {
-          doc._idIndex.set(strValue, this);
-        }
+        if (doc && doc._idIndex && !doc._idIndex.has(strValue)) doc._idIndex.set(strValue, this);
       }
       this._notifyMutation();
       triggerMutation('attributes', this, { attributeName: lower, oldValue: null });
@@ -258,7 +252,12 @@ export class Element extends Node {
   }
 
   get childElementCount(): number {
-    return this._children.filter(c => c.nodeType === Node.ELEMENT_NODE).length;
+    let count = 0;
+    const children = this._children;
+    for (let i = 0, len = children.length; i < len; i++) {
+      if (children[i].nodeType === 1) count++;
+    }
+    return count;
   }
 
   get firstElementChild(): Element | null {
@@ -466,13 +465,14 @@ export class Element extends Node {
   }
 
   get textContent(): string {
-    let text = '';
-    for (const child of this._children) {
-      if (child.nodeType !== Node.COMMENT_NODE) {
-        text += child.textContent;
+    const parts: string[] = [];
+    const children = this._children;
+    for (let i = 0, len = children.length; i < len; i++) {
+      if (children[i].nodeType !== 8) { // COMMENT_NODE
+        parts.push(children[i].textContent);
       }
     }
-    return text;
+    return parts.join('');
   }
 
   // ── innerHTML ─────────────────────────────────────────────────────

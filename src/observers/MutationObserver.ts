@@ -137,7 +137,12 @@ export class MutationObserver {
       // Direct target match
       const directMatch = reg.target === target;
       // Subtree match: target is a descendant of the observed node
-      const subtreeMatch = reg.options.subtree && reg.target.contains(target);
+      // Fast path: document node or documentElement always contains everything
+      const subtreeMatch = reg.options.subtree && (
+        reg.target.nodeType === 9 /* DOCUMENT_NODE */ ||
+        (reg.target.nodeType === 1 && reg.target.parentNode?.nodeType === 9) ||
+        reg.target.contains(target)
+      );
 
       if (!directMatch && !subtreeMatch) continue;
 
@@ -224,6 +229,8 @@ export function triggerMutation(
     oldValue?: string | null;
   } = {},
 ): void {
+  if (_registry.size === 0) return; // No observers — skip entirely
+
   for (const observer of _registry) {
     const reg = observer._matchesMutation(
       type,

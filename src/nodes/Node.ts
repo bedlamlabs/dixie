@@ -111,9 +111,11 @@ export class Node extends EventTarget {
 
   contains(other: Node | null): boolean {
     if (other === null) return false;
-    if (other === this) return true;
-    for (const child of this._children) {
-      if (child.contains(other)) return true;
+    // Walk UP from other to this — O(depth) instead of O(tree_size)
+    let node: Node | null = other;
+    while (node !== null) {
+      if (node === this) return true;
+      node = node.parentNode;
     }
     return false;
   }
@@ -121,7 +123,7 @@ export class Node extends EventTarget {
   // ── Tree mutations ───────────────────────────────────────────────────
 
   appendChild(child: Node): Node {
-    if (child === this || child.contains(this)) {
+    if (child === this || (child.parentNode !== null && child.contains(this))) {
       throw new DOMException(
         "Failed to execute 'appendChild' on 'Node': The new child element contains the parent.",
         'HierarchyRequestError',
@@ -197,7 +199,7 @@ export class Node extends EventTarget {
       );
     }
 
-    if (newChild === this || newChild.contains(this)) {
+    if (newChild === this || (newChild.parentNode !== null && newChild.contains(this))) {
       throw new DOMException(
         "Failed to execute 'insertBefore' on 'Node': The new child element contains the parent.",
         'HierarchyRequestError',
@@ -259,7 +261,7 @@ export class Node extends EventTarget {
       );
     }
 
-    if (newChild === this || newChild.contains(this)) {
+    if (newChild === this || (newChild.parentNode !== null && newChild.contains(this))) {
       throw new DOMException(
         "Failed to execute 'replaceChild' on 'Node': The new child element contains the parent.",
         'HierarchyRequestError',
