@@ -1,6 +1,6 @@
 {
   "name": "@bedlamlabs/dixie",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "DOM-level CLI browser for AI agents. Render pages, query elements, run tests, capture network activity — all without a real browser.",
   "type": "module",
   "main": "./src/index.ts",
