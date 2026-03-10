@@ -34,26 +34,32 @@ Just a programmable DOM engine built for machines.
 
 ## Install
 
-Not yet published to npm. Use via git clone or vendored copy:
-
 ```bash
-git clone https://github.com/bedlamlabs/dixie.git
-cd dixie
-npm install
+npm install @bedlamlabs/dixie
 ```
 
+Dixie ships TypeScript source and requires [tsx](https://github.com/privatenumber/tsx) as a runtime (included as a dependency).
+
+Node.js 18+ required.
+
 ## CLI Usage
+
+```bash
+npx @bedlamlabs/dixie <command> [url] [selector] [options]
+```
+
+Or if installed globally / in a project:
+
+```bash
+npx dixie <command> [url] [selector] [options]
+```
+
+If the first argument is a URL, the command defaults to `render`.
 
 > **Security notice:** Dixie executes page scripts inside a Node.js `vm` sandbox.
 > This sandbox is **not an isolation boundary** — rendered page code can access the host
 > Node.js process via prototype chain escapes. Node's `vm` module explicitly provides
 > no security guarantees. Only render pages from sources you trust.
-
-```
-dixie <command> [url] [selector] [options]
-```
-
-If the first argument is a URL, the command defaults to `render`.
 
 ### Commands
 
@@ -190,17 +196,10 @@ Dixie provides a custom vitest environment — a drop-in replacement for jsdom o
 ```typescript
 // vitest.config.ts
 import { defineConfig } from 'vitest/config';
-import path from 'path';
 
 export default defineConfig({
   test: {
-    environment: path.resolve(__dirname, 'packages/dixie/vitest-env.ts'),
-    // ...
-  },
-  resolve: {
-    alias: {
-      '@bedlamlabs/dixie': path.resolve(__dirname, 'packages/dixie/src'),
-    },
+    environment: '@bedlamlabs/dixie/vitest-env',
   },
 });
 ```
