@@ -5,7 +5,7 @@ Most browsers are designed for humans.
 Dixie is a browser designed for agents.
 
 Dixie is a DOM-level CLI browser that renders web pages, executes scripts, and exposes the entire page as structured data agents can query, test, and manipulate.
-Instead of automating a real browser, Dixie implements the browser environment itself — including the DOM tree, CSS selector engine, events, forms, observers, timers, fetch, storage, and navigation.
+Instead of automating a real browser, Dixie implements the browser environment itself, including the DOM tree, CSS selector engine, events, forms, observers, timers, fetch, storage, and navigation.
 
 This allows agents to:
 - render pages
