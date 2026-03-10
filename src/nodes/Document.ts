@@ -347,7 +347,12 @@ export class Document extends Node {
  */
 export function _getElementsByClassName(root: Node, className: string): HTMLCollection {
   const requiredClasses = className.split(/\s+/).filter(c => c.length > 0);
+  let cached: Node[] | null = null;
+  let cachedVersion = -1;
   return new HTMLCollection(() => {
+    const doc = (root as any).ownerDocument ?? root;
+    const ver = doc._mutationVersion ?? 0;
+    if (cached !== null && cachedVersion === ver) return cached;
     const results: Node[] = [];
     _walkElements(root, (el: Element) => {
       if (requiredClasses.length === 0) return;
@@ -356,6 +361,8 @@ export function _getElementsByClassName(root: Node, className: string): HTMLColl
         results.push(el);
       }
     });
+    cached = results;
+    cachedVersion = ver;
     return results;
   });
 }
@@ -368,24 +375,36 @@ export function _getElementsByClassName(root: Node, className: string): HTMLColl
 export function _getElementsByTagName(root: Node, tagName: string): HTMLCollection {
   const upper = tagName.toUpperCase();
   const matchAll = upper === '*';
+  let cached: Node[] | null = null;
+  let cachedVersion = -1;
   return new HTMLCollection(() => {
+    const doc = (root as any).ownerDocument ?? root;
+    const ver = doc._mutationVersion ?? 0;
+    if (cached !== null && cachedVersion === ver) return cached;
     const results: Node[] = [];
     _walkElements(root, (el: Element) => {
       if (matchAll || el.tagName === upper) {
         results.push(el);
       }
     });
+    cached = results;
+    cachedVersion = ver;
     return results;
   });
 }
 
-/** Depth-first walk of all Element descendants (excludes root). */
-function _walkElements(node: Node, callback: (el: Element) => void): void {
-  for (const child of node._children) {
-    if (child.nodeType === Node.ELEMENT_NODE) {
-      callback(child as Element);
+/** Depth-first walk of all Element descendants (excludes root). Iterative to avoid call-stack overhead. */
+function _walkElements(root: Node, callback: (el: Element) => void): void {
+  const stack: Node[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.nodeType === 1 /* ELEMENT_NODE */ && node !== root) {
+      callback(node as any);
     }
-    _walkElements(child, callback);
+    const children = node._children;
+    for (let i = children.length - 1; i >= 0; i--) {
+      stack.push(children[i]);
+    }
   }
 }
 
@@ -435,6 +454,8 @@ class NodeIterator {
   /** Cached flat tree — built once, invalidated on mutation via _mutationVersion. */
   private _cachedNodes: Node[] | null = null;
   private _cachedMutationVersion: number = -1;
+  /** Cached cursor index for O(1) nextNode/previousNode. */
+  private _cursorIndex: number = 0;
 
   constructor(root: Node, whatToShow: number, filter: any) {
     this.root = root;
@@ -452,41 +473,53 @@ class NodeIterator {
     return NodeIteratorFilter.FILTER_ACCEPT;
   }
 
-  /** Collect all nodes in document order (depth-first pre-order). */
-  private _flattenTree(node: Node): Node[] {
-    const result: Node[] = [node];
-    for (const child of node._children) {
-      result.push(...this._flattenTree(child));
+  /** Iteratively collect all nodes in document order (depth-first pre-order). */
+  private _flattenTree(root: Node): Node[] {
+    const result: Node[] = [];
+    const stack: Node[] = [root];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      result.push(node);
+      // Push children in reverse so first child is processed first
+      const children = node._children;
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push(children[i]);
+      }
     }
     return result;
   }
 
   /** Return the flat node list, using cache when the tree hasn't mutated. */
   private _getNodes(): Node[] {
-    const currentVersion = (this.root as any)._mutationVersion ?? 0;
+    const doc = (this.root as any).ownerDocument ?? this.root;
+    const currentVersion = doc._mutationVersion ?? 0;
     if (this._cachedNodes === null || this._cachedMutationVersion !== currentVersion) {
       this._cachedNodes = this._flattenTree(this.root);
       this._cachedMutationVersion = currentVersion;
+      // Rebuild cursor index
+      this._cursorIndex = this._cachedNodes.indexOf(this.referenceNode);
     }
     return this._cachedNodes;
   }
 
   nextNode(): Node | null {
     const allNodes = this._getNodes();
-    let currentIndex = allNodes.indexOf(this.referenceNode);
-    if (currentIndex === -1) currentIndex = -1;
+    let currentIndex = this._cursorIndex;
+    if (currentIndex === -1 || currentIndex >= allNodes.length || allNodes[currentIndex] !== this.referenceNode) {
+      currentIndex = allNodes.indexOf(this.referenceNode);
+      this._cursorIndex = currentIndex;
+    }
 
-    // If pointer is before reference, start at reference; otherwise after
     let startIndex = this.pointerBeforeReferenceNode ? currentIndex : currentIndex + 1;
 
     for (let i = startIndex; i < allNodes.length; i++) {
       const node = allNodes[i];
-      // Skip the reference node itself if pointer is before it
       if (i === currentIndex && this.pointerBeforeReferenceNode) continue;
 
       if (this._acceptNode(node) === NodeIteratorFilter.FILTER_ACCEPT) {
         this.referenceNode = node;
         this.pointerBeforeReferenceNode = false;
+        this._cursorIndex = i;
         return node;
       }
     }
@@ -495,7 +528,11 @@ class NodeIterator {
 
   previousNode(): Node | null {
     const allNodes = this._getNodes();
-    let currentIndex = allNodes.indexOf(this.referenceNode);
+    let currentIndex = this._cursorIndex;
+    if (currentIndex === -1 || currentIndex >= allNodes.length || allNodes[currentIndex] !== this.referenceNode) {
+      currentIndex = allNodes.indexOf(this.referenceNode);
+      this._cursorIndex = currentIndex;
+    }
     if (currentIndex === -1) return null;
 
     let startIndex = this.pointerBeforeReferenceNode ? currentIndex - 1 : currentIndex;
@@ -507,6 +544,7 @@ class NodeIterator {
       if (this._acceptNode(node) === NodeIteratorFilter.FILTER_ACCEPT) {
         this.referenceNode = node;
         this.pointerBeforeReferenceNode = true;
+        this._cursorIndex = i;
         return node;
       }
     }
@@ -570,17 +608,16 @@ class TreeWalker {
   nextSibling(): Node | null {
     let node: Node | null = this.currentNode;
     while (node && node !== this.root) {
-      const parent = node.parentNode;
-      if (!parent) return null;
-      const siblings = parent._children;
-      const idx = siblings.indexOf(node);
-      for (let i = idx + 1; i < siblings.length; i++) {
-        if (this._acceptNode(siblings[i]) === NodeIteratorFilter.FILTER_ACCEPT) {
-          this.currentNode = siblings[i];
-          return siblings[i];
+      // Walk nextSibling chain — O(1) per sibling via linked list
+      let sibling = node.nextSibling;
+      while (sibling) {
+        if (this._acceptNode(sibling) === NodeIteratorFilter.FILTER_ACCEPT) {
+          this.currentNode = sibling;
+          return sibling;
         }
+        sibling = sibling.nextSibling;
       }
-      node = parent;
+      node = node.parentNode;
     }
     return null;
   }
@@ -588,17 +625,16 @@ class TreeWalker {
   previousSibling(): Node | null {
     let node: Node | null = this.currentNode;
     while (node && node !== this.root) {
-      const parent = node.parentNode;
-      if (!parent) return null;
-      const siblings = parent._children;
-      const idx = siblings.indexOf(node);
-      for (let i = idx - 1; i >= 0; i--) {
-        if (this._acceptNode(siblings[i]) === NodeIteratorFilter.FILTER_ACCEPT) {
-          this.currentNode = siblings[i];
-          return siblings[i];
+      // Walk previousSibling chain — O(1) per sibling via linked list
+      let sibling = node.previousSibling;
+      while (sibling) {
+        if (this._acceptNode(sibling) === NodeIteratorFilter.FILTER_ACCEPT) {
+          this.currentNode = sibling;
+          return sibling;
         }
+        sibling = sibling.previousSibling;
       }
-      node = parent;
+      node = node.parentNode;
     }
     return null;
   }

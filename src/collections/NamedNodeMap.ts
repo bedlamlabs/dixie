@@ -9,6 +9,8 @@ import { Attr } from '../nodes/Attr';
 export class NamedNodeMap {
   /** Internal ordered list of attributes. */
   _attrs: Attr[] = [];
+  /** O(1) name → Attr lookup (kept in sync with _attrs). */
+  private _map: Map<string, Attr> = new Map();
 
   constructor() {
     // Return a Proxy so numeric indexing (attributes[0]) works like a real NamedNodeMap
@@ -31,38 +33,36 @@ export class NamedNodeMap {
   }
 
   getNamedItem(name: string): Attr | null {
-    const lower = name.toLowerCase();
-    const attrs = this._attrs;
-    for (let i = 0, len = attrs.length; i < len; i++) {
-      if (attrs[i].name === lower) return attrs[i];
-    }
-    return null;
+    return this._map.get(name.toLowerCase()) ?? null;
   }
 
   setNamedItem(attr: Attr): Attr | null {
-    const existing = this.getNamedItem(attr.name);
+    const existing = this._map.get(attr.name);
     if (existing) {
-      const old = existing;
       const idx = this._attrs.indexOf(existing);
       this._attrs[idx] = attr;
-      return old;
+      this._map.set(attr.name, attr);
+      return existing;
     }
     this._attrs.push(attr);
+    this._map.set(attr.name, attr);
     return null;
   }
 
   removeNamedItem(name: string): Attr {
     const lower = name.toLowerCase();
-    const idx = this._attrs.findIndex(a => a.name === lower);
-    if (idx === -1) {
+    const existing = this._map.get(lower);
+    if (!existing) {
       throw new DOMException(
         `Failed to execute 'removeNamedItem' on 'NamedNodeMap': No attribute named '${name}' was found.`,
         'NotFoundError',
       );
     }
-    const [removed] = this._attrs.splice(idx, 1);
-    removed.ownerElement = null;
-    return removed;
+    const idx = this._attrs.indexOf(existing);
+    this._attrs.splice(idx, 1);
+    this._map.delete(lower);
+    existing.ownerElement = null;
+    return existing;
   }
 
   [Symbol.iterator](): IterableIterator<Attr> {

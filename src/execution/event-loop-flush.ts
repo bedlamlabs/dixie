@@ -73,6 +73,8 @@ export async function flushReactRender(
   let lastCount = -1;
   let stableCount = 0;
   let rounds = 0;
+  // Track mutation version to skip expensive querySelectorAll when DOM is unchanged
+  let lastMutationVersion = -1;
 
   while (Date.now() < deadline) {
     // Yield to the event loop — this lets MessageChannel callbacks, resolved
@@ -80,7 +82,16 @@ export async function flushReactRender(
     await new Promise<void>((resolve) => setImmediate(resolve));
     rounds++;
 
-    const count = (doc.querySelectorAll('*') as any[]).length;
+    // Fast path: if mutation version is unchanged, DOM hasn't been touched —
+    // skip the O(n) querySelectorAll and reuse the previous count.
+    const currentVersion = doc._mutationVersion ?? -2;
+    let count: number;
+    if (currentVersion === lastMutationVersion && lastCount >= 0) {
+      count = lastCount;
+    } else {
+      count = (doc.querySelectorAll('*') as any[]).length;
+      lastMutationVersion = currentVersion;
+    }
 
     if (count === lastCount) {
       stableCount++;
