@@ -83,6 +83,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
         args.url = arg;
       } else if (!args.url && args.command === 'run') {
         args.file = arg;
+      } else if (args.command === 'diff') {
+        // diff takes two file path positionals — route both to rest, not selector
+        args.rest.push(arg);
       } else if (!args.selector) {
         args.selector = arg;
       } else {

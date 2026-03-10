@@ -432,6 +432,9 @@ class NodeIterator {
   readonly filter: any;
   referenceNode: Node;
   pointerBeforeReferenceNode: boolean = true;
+  /** Cached flat tree — built once, invalidated on mutation via _mutationVersion. */
+  private _cachedNodes: Node[] | null = null;
+  private _cachedMutationVersion: number = -1;
 
   constructor(root: Node, whatToShow: number, filter: any) {
     this.root = root;
@@ -458,8 +461,18 @@ class NodeIterator {
     return result;
   }
 
+  /** Return the flat node list, using cache when the tree hasn't mutated. */
+  private _getNodes(): Node[] {
+    const currentVersion = (this.root as any)._mutationVersion ?? 0;
+    if (this._cachedNodes === null || this._cachedMutationVersion !== currentVersion) {
+      this._cachedNodes = this._flattenTree(this.root);
+      this._cachedMutationVersion = currentVersion;
+    }
+    return this._cachedNodes;
+  }
+
   nextNode(): Node | null {
-    const allNodes = this._flattenTree(this.root);
+    const allNodes = this._getNodes();
     let currentIndex = allNodes.indexOf(this.referenceNode);
     if (currentIndex === -1) currentIndex = -1;
 
@@ -481,7 +494,7 @@ class NodeIterator {
   }
 
   previousNode(): Node | null {
-    const allNodes = this._flattenTree(this.root);
+    const allNodes = this._getNodes();
     let currentIndex = allNodes.indexOf(this.referenceNode);
     if (currentIndex === -1) return null;
 

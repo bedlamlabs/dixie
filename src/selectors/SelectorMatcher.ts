@@ -624,7 +624,7 @@ export function _fastQueryFirst(root: Node, selector: string): Element | null | 
   }
 
   // tag
-  if (ch >= 65 && ch <= 122 && SIMPLE_TAG_RE.test(selector)) {
+  if (((ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122)) && SIMPLE_TAG_RE.test(selector)) {
     const upper = selector.toUpperCase();
     return walkDescendantsFirst(root, (el) => el.tagName === upper);
   }
@@ -661,7 +661,7 @@ export function _fastQueryAll(root: Node, selector: string): Element[] | undefin
   }
 
   // tag
-  if (ch >= 65 && ch <= 122 && SIMPLE_TAG_RE.test(selector)) {
+  if (((ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122)) && SIMPLE_TAG_RE.test(selector)) {
     const upper = selector.toUpperCase();
     const results: Element[] = [];
     walkDescendants(root, (el) => {

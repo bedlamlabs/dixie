@@ -1,4 +1,8 @@
 export const SENSITIVE_HEADERS = /^(authorization|cookie|set-cookie)$/i;
+// BEARER_PATTERN tests header *values*, not header names.
+// Any header whose value starts with "Bearer " is redacted, regardless of the
+// header name. This catches auth tokens placed in non-standard headers
+// (e.g. X-Api-Key: Bearer abc123). Expected — not a bug.
 const BEARER_PATTERN = /^bearer\s+/i;
 
 export function redactHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {

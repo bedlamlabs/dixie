@@ -140,7 +140,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   const parseMs = performance.now() - parseStart;
 
   // Create environment and parse HTML
-  const ctx = createVmContext({ timeout: options?.timeout ?? 5000, url });
+  const ctx = createVmContext({ timeout: options?.timeout ?? 5000, url, harRecorder: options?.harRecorder });
 
   // Parse full HTML document structure
   // Extract head/body content and title from the raw HTML

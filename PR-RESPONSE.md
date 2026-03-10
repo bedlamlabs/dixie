@@ -273,6 +273,90 @@ roadmap for v3.1 and beyond.
 
 ---
 
+## Remaining Blockers — Confirmed by Codex Second Pass (Post-0.8170)
+
+Codex ran a second validation pass against the actual shipping artifact (`npm pack --dry-run`,
+`parseArgs()` + `dispatch()` probes, direct command execution) and found five issues that the
+0.8170 unit tests did not catch because they tested helper functions directly rather than the
+full CLI dispatch path.
+
+### ❌ `bin/` directory does not exist
+
+`package.json` declares `"bin": { "dixie": "./bin/dixie.ts" }` but there is no `bin/` directory
+and no `dixie.ts` entry point in the package tree. `npm pack --dry-run` produces a package where
+the `dixie` CLI symlink is broken on install.
+
+**Fix**: Create `bin/dixie.ts` as the CLI entry point (`parseArgs(process.argv.slice(2))` -> `dispatch()`).
+
+---
+
+### ❌ `run` command reads `args.url` but parser writes `args.file`
+
+`parseArgs()` correctly routes the file path into `args.file` when `command === 'run'` and the
+argument is not a URL. But `run.execute()` reads `args.url`, not `args.file`. `dixie run smoke.ts`
+fails with `MISSING_FILE` on its primary usage pattern.
+
+**Fix**: Change `run.execute()` to read `const filePath = args.file ?? args.url`.
+
+---
+
+### ❌ `diff` positional args mis-routed by parser
+
+`parseArgs()` puts the first non-URL positional into `args.selector`, not `args.rest`.
+`dixie diff before.json after.json` results in `args.selector = 'before.json'` and
+`args.rest = ['after.json']`. `diff.execute()` reads `args.rest[0]` and `args.rest[1]` —
+fileA gets `after.json` and fileB is undefined. Fails with `MISSING_ARGS`.
+
+The `(args as any).args ?? args.rest` fallback in `diff.execute()` indicates this was
+known but never fixed in the parser.
+
+**Fix**: In `parseArgs()`, when `command === 'diff'`, route positional arguments directly
+into `args.rest` rather than `args.selector`.
+
+---
+
+### ❌ `query` does not call `formatOutput` — `--format` silently ignored
+
+`query.execute()` returns `{ exitCode, data: {...} }` without ever calling
+`formatOutput(data, args.format)`. `--format yaml` and `--format markdown` have no effect.
+
+**Fix**: Add `const output = formatOutput(data, args.format ?? 'json')` and include
+`output` in the return value, consistent with all other commands.
+
+---
+
+### ❌ HAR captures initial fetch only — in-page `fetch()` calls not recorded
+
+The HAR recorder was wired to wrap `globalThis.fetch` during the initial HTML retrieval,
+capturing the page load request. But scripts executing inside the VM use `sandbox.fetch`
+(the MockFetch arrow wrapper in `vm-context.ts`), and that instance is never connected
+to the recorder. Network calls made by page scripts do not appear in the HAR.
+
+`dixie har data:text/html,...` with an inline `fetch()` returns `entries: []` because
+`data:` URLs skip the outer fetch path entirely, and the sandbox fetch is unwired.
+
+**Fix**: Accept an optional `harRecorder` in `createVmContext()` and wrap `sandbox.fetch`
+to call `recorder.record(...)` on each response before returning it.
+
+---
+
+## Non-Blocking Findings — Roadmapped
+
+These findings are correct but not blockers for the initial release. Added to the project
+roadmap for v3.1 and beyond.
+
+| Finding | Source | Roadmap Priority |
+|---------|--------|------------------|
+| `NodeIterator._flattenTree()` O(n²) — rebuilds entire subtree array per `nextNode()` call | Claude | P2 |
+| `_fastQueryFirst` char code range 65–122 includes non-alpha ASCII 91–96 | Claude | P2 |
+| `SelectorParser.readIdent()` rejects unquoted numeric-starting attribute values like `[data-index=1]` | Claude | P2 |
+| `ConsoleCapture` module-level singleton unsafe in `--pool threads` parallel Vitest runs | Claude | P2 |
+| `redact.ts` silently redacts any header whose *value* starts with `Bearer ` — undocumented | Claude | P3 |
+| `removeChild` not wired to MutationObserver `removedNodes` | Claude | P3 |
+| `mock-record`, `mock-replay`, `snapshot` lack behavioral RED test coverage | Claude | P3 |
+
+---
+
 ## Reviewer Assessment (Post-Fix)
 
 The original verdict was "not ready — 2-3 focused days to clear blockers." The 0.8170 sprint
