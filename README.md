@@ -1,18 +1,23 @@
 # Dixie
 
-Most headless browsers give you a browser. Dixie gives you an operational toolkit.
+Dixie is a browser and toolkit designed for coding agents.
 
-Dixie is a DOM engine, CLI browser, test harness, network recorder, and page analyzer — purpose-built for AI agents and automation pipelines. It renders web pages (including React SPAs), executes scripts, and exposes every element, event, and API call as structured data agents can query, diff, and act on.
+Modern AI coding workflows work best when they follow tight feedback loops: write code, run tests, verify behavior, repeat. In practice, that loop often breaks down when the verification step depends on slow, heavyweight browser environments. Spinning up Chromium just to confirm a DOM change or check a selector can add seconds—or minutes—to every iteration.
+Dixie shortens that loop.
 
-Instead of automating a real browser, Dixie implements the browser environment itself: DOM tree, CSS selector engine, events, forms, observers, timers, fetch, storage, and navigation. The result is a tool that's **10x faster** than Happy-DOM and runs anywhere Node.js does — no Chromium, no browser drivers, no 200MB installs.
+It provides a browser-like environment agents can run entirely from the command line. Dixie fetches pages, builds a DOM, executes scripts (including modern SPA bundles), and exposes the result as structured data agents can query, test, and inspect.
 
-Agents use Dixie to:
-- **Render and query pages** — parse HTML into a live DOM, query by CSS/testId/role/label
-- **Run test scripts** — execute `.ts`/`.js` tests against any URL with structured output
-- **Record and replay network** — capture HAR files, mock API responses on replay
-- **Audit pages** — accessibility, links, forms, structure, CSS, API traces
-- **Benchmark and diff** — DOM operation timing, structural snapshot comparison
-- **Inspect and interact** — click, type, select — all at the DOM level
+Instead of automating a real browser, Dixie implements the browser environment itself: the DOM tree, selector engine, events, forms, observers, timers, fetch, storage, and navigation. That makes it fast, deterministic, and easy to run anywhere Node.js runs.
+
+In practice, agents use Dixie to:
+
+- **Render and query pages** — fetch HTML, build a live DOM, and query it using CSS selectors, test IDs, ARIA roles, or labels
+- **Write and run tests quickly** execute .ts or .js test files against a page without waiting for a full browser to start
+- **Verify changes during development** confirm DOM structure, text, and interactions as code evolves
+- **Capture and replay network activity** record HAR files and replay them to mock APIs
+- **Inspect and audit pages** analyze accessibility, links, forms, structure, CSS usage, and API calls
+- **Diff and benchmark** compare DOM snapshots and measure parse/query/mutation performance
+- **Built for fast CI verification** unlike Playwright or Puppeteer, Dixie runs directly against a DOM engine instead of launching Chromium, which dramatically reduces test runtime and keeps CI feedback fast.
 
 Fast. Deterministic. Zero browser dependencies. One `npm install`.
 
