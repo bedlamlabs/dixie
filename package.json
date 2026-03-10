@@ -1,6 +1,6 @@
 {
   "name": "@bedlamlabs/dixie",
-  "version": "0.4.0",
+  "version": "3.0.3",
   "description": "DOM-level CLI browser for AI agents. Render pages, query elements, run tests, capture network activity — all without a real browser.",
   "type": "module",
   "main": "./src/index.ts",
@@ -9,14 +9,15 @@
     "./cli": "./src/cli/index.ts"
   },
   "bin": {
-    "dixie": "./bin/dixie.ts"
+    "dixie": "./bin/dixie.cjs"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "esbuild": "^0.21.0",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "tsx": "^4.7.0"
   },
   "devDependencies": {
     "typescript": "^5.3.0",
@@ -29,10 +30,23 @@
     "agent",
     "testing",
     "cli",
-    "browser"
+    "browser",
+    "jsdom",
+    "happy-dom",
+    "spa",
+    "react"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/bedlamlabs/dixie.git"
-  }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ]
 }
