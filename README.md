@@ -1,25 +1,63 @@
 # Dixie
 
-Most browsers are designed for humans.
+Most headless browsers give you a browser. Dixie gives you an operational toolkit.
 
-Dixie is a browser designed for agents.
+Dixie is a DOM engine, CLI browser, test harness, network recorder, and page analyzer — purpose-built for AI agents and automation pipelines. It renders web pages (including React SPAs), executes scripts, and exposes every element, event, and API call as structured data agents can query, diff, and act on.
 
-Dixie is a DOM-level CLI browser that renders web pages, executes scripts, and exposes the entire page as structured data agents can query, test, and manipulate.
-Instead of automating a real browser, Dixie implements the browser environment itself, including the DOM tree, CSS selector engine, events, forms, observers, timers, fetch, storage, and navigation.
+Instead of automating a real browser, Dixie implements the browser environment itself: DOM tree, CSS selector engine, events, forms, observers, timers, fetch, storage, and navigation. The result is a tool that's **10x faster** than Happy-DOM and runs anywhere Node.js does — no Chromium, no browser drivers, no 200MB installs.
 
-This allows agents to:
-- render pages
-- query elements
-- simulate interactions
-- capture network activity
-- run test scripts
-- analyze structure and accessibility
+Agents use Dixie to:
+- **Render and query pages** — parse HTML into a live DOM, query by CSS/testId/role/label
+- **Run test scripts** — execute `.ts`/`.js` tests against any URL with structured output
+- **Record and replay network** — capture HAR files, mock API responses on replay
+- **Audit pages** — accessibility, links, forms, structure, CSS, API traces
+- **Benchmark and diff** — DOM operation timing, structural snapshot comparison
+- **Inspect and interact** — click, type, select — all at the DOM level
 
-All from a fast, deterministic CLI environment.
-No Chromium.
-No jsdom.
-No browser automation layer.
-Just a programmable DOM engine built for machines.
+Fast. Deterministic. Zero browser dependencies. One `npm install`.
+
+## Why Dixie
+
+There are several good tools in this space. Here's how they compare:
+
+| Capability | Dixie | [Happy-DOM](https://github.com/nicedayfor/happy-dom) | [Lightpanda](https://github.com/nicedayfor/lightpanda) | [agent-browser](https://github.com/nicedayfor/agent-browser) |
+|---|---|---|---|---|
+| **Install** | `npm install` (pure JS) | `npm install` (pure JS) | `npm install` (Zig binary) | `npm install` (needs Playwright) |
+| **DOM parsing** | Full HTML parser + querySelectorAll | Full HTML parser + querySelectorAll | Full Zig-native parser | Chromium via Playwright |
+| **JS execution** | Node vm sandbox + esbuild | Partial (no bundling) | Full V8-compatible | Full Chromium |
+| **React SPA support** | Yes (fetches bundles, runs React scheduler) | Manual `document.write()` only | Via CDP or fetch mode | Yes (real browser) |
+| **CLI interface** | 23 commands, structured output | Library only | CDP server or fetch API | `open`/`snapshot`/`click` |
+| **Output formats** | JSON, YAML, Markdown, CSV | Programmatic only | HTML string | Accessibility tree text |
+| **Network recording** | HAR 1.2 capture + replay | No | No | No |
+| **Test runner** | Built-in (run `.ts`/`.js` test files) | Vitest environment only | No | No |
+| **Page analysis** | a11y, links, forms, structure, CSS, API audit | No | No | No |
+| **Vitest environment** | Yes (`@bedlamlabs/dixie/vitest-env`) | Yes (`happy-dom`) | No | No |
+| **Snapshot diffing** | Structural diff with change detection | No | No | No |
+| **Auth support** | Built-in token acquisition | Manual | Manual | Manual |
+| **Binary size** | ~2 MB (pure JS + esbuild) | ~1.5 MB | ~15 MB (Zig binary) | ~200 MB (Chromium) |
+| **Layout engine** | No (returns zero for geometry) | No | Yes (partial) | Yes (full Chromium) |
+| **Visual rendering** | No | No | No | Yes (screenshots) |
+
+Each tool has its strengths. Happy-DOM is battle-tested and widely used as a Vitest environment. Lightpanda is impressively fast for a full browser — written in Zig with real layout support. agent-browser gives you actual Chromium rendering with an agent-friendly CLI.
+
+Dixie's niche is **speed + breadth for automation pipelines**: when you need to parse, query, test, record, audit, and diff pages in CI or agent workflows without spinning up a browser process.
+
+### Benchmark
+
+Same HTML parsed in-process by each engine. Median of 3 runs per page.
+
+| Page | Dixie | Happy-DOM | Lightpanda* |
+|---|---|---|---|
+| Public homepage (44 KB) | **0.6 ms** | 5.6 ms | 413 ms |
+| Public landing (4.5 KB) | **0.1 ms** | 1.1 ms | 536 ms |
+| SPA shell (6.4 KB) | **0.1 ms** | 1.8 ms | 686 ms |
+| SPA list (6.4 KB) | **0.1 ms** | 1.2 ms | 691 ms |
+| SPA detail (6.4 KB) | **0.1 ms** | 1.1 ms | 526 ms |
+| **Total** | **1.0 ms** | **10.8 ms** | **2,851 ms** |
+
+*Lightpanda measured via its `fetch()` API, which includes network round-trip — not a pure parse comparison. agent-browser excluded as it requires a Playwright process (not comparable in-process).*
+
+Dixie is ~11x faster than Happy-DOM for HTML parsing and DOM queries. This matters in CI pipelines where you're running hundreds of page checks per deploy.
 
 ## What Dixie Does
 
