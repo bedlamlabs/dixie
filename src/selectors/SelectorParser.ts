@@ -246,12 +246,14 @@ class SelectorParserImpl {
 
     this.skipWhitespace();
 
-    // Read value (quoted or unquoted identifier)
+    // Read value (quoted or unquoted).
+    // Unquoted values may start with a digit (e.g. [data-index=1]) — use
+    // readUnquotedValue() which accepts any non-whitespace, non-] sequence.
     let value: string;
     if (this.peek() === '"' || this.peek() === "'") {
       value = this.readQuotedString();
     } else {
-      value = this.readIdent();
+      value = this.readUnquotedValue();
     }
 
     this.skipWhitespace();
@@ -378,6 +380,26 @@ class SelectorParserImpl {
 
   private isIdentChar(ch: string): boolean {
     return /[a-zA-Z0-9_\-]/.test(ch) || ch.charCodeAt(0) > 127;
+  }
+
+  /**
+   * Read an unquoted attribute value — accepts digit-starting sequences like `1`, `123`, `2rem`.
+   * CSS4 allows any sequence of non-whitespace, non-] characters as an unquoted value.
+   */
+  private readUnquotedValue(): string {
+    const start = this.pos;
+    while (this.pos < this.input.length) {
+      const ch = this.input[this.pos];
+      if (ch === ']' || ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') break;
+      this.pos++;
+    }
+    if (this.pos === start) {
+      throw new DOMException(
+        `Failed to execute 'querySelector': '${this.input}' is not a valid selector.`,
+        'SyntaxError',
+      );
+    }
+    return this.input.slice(start, this.pos);
   }
 
   private readIdent(): string {

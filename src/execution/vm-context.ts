@@ -2,6 +2,7 @@ import * as vm from 'node:vm';
 import { createDixieEnvironment } from '../environment';
 import type { DixieEnvironment } from '../environment';
 import { MockFetch } from '../fetch/MockFetch';
+import type { HarRecorder } from '../har/recorder';
 import { Event } from '../events/Event';
 import { CustomEvent } from '../events/CustomEvent';
 import { MouseEvent } from '../events/MouseEvent';
@@ -13,6 +14,8 @@ import { MutationObserver } from '../observers/MutationObserver';
 export interface VmContextOptions {
   timeout?: number;
   url?: string;
+  /** Optional HAR recorder — when provided, in-page fetch() calls are recorded. */
+  harRecorder?: HarRecorder;
 }
 
 export interface ScriptResult {
@@ -41,6 +44,7 @@ export interface VmContext {
 export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptions): VmContext {
   let env: DixieEnvironment;
   let timeout = 5000;
+  let harRecorder: HarRecorder | undefined;
 
   if (envOrOptions && 'document' in envOrOptions && 'window' in envOrOptions) {
     // Called with an existing DixieEnvironment
@@ -49,6 +53,7 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     const options = envOrOptions as VmContextOptions | undefined;
     env = createDixieEnvironment({ url: options?.url ?? 'http://localhost/' });
     timeout = options?.timeout ?? 5000;
+    harRecorder = options?.harRecorder;
   }
   const win = env.window;
 
@@ -112,7 +117,25 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     // ── Fetch & Networking ─────────────────────────────────────────────
     // Use MockFetch so sandbox scripts cannot make real network calls
     // and route registrations work correctly within the vm sandbox.
-    fetch: (input: any, init?: any) => mockFetch.fetch(input, init),
+    // If a harRecorder was provided, wrap fetch to record in-page network calls.
+    fetch: harRecorder
+      ? async (input: any, init?: any) => {
+          const start = performance.now();
+          const response = await mockFetch.fetch(input, init);
+          const durationMs = performance.now() - start;
+          // Clone so the caller can still consume the body
+          const clone = response.clone();
+          const body = await clone.text().catch(() => '');
+          harRecorder!.record({
+            method: init?.method ?? 'GET',
+            url: typeof input === 'string' ? input : input?.url ?? String(input),
+            status: response.status,
+            responseBody: body,
+            durationMs: Math.round(durationMs * 100) / 100,
+          });
+          return response;
+        }
+      : (input: any, init?: any) => mockFetch.fetch(input, init),
     Headers: globalThis.Headers,
     Request: globalThis.Request,
     Response: globalThis.Response,

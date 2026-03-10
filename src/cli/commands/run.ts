@@ -79,7 +79,7 @@ export async function runTestFile(filePath: string): Promise<RunResult> {
 }
 
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
-  const filePath = args.url;
+  const filePath = args.file ?? args.url;
   if (!filePath) {
     return {
       exitCode: 1,

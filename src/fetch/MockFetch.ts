@@ -278,4 +278,28 @@ export class MockFetch {
       url,
     });
   }
+
+  /**
+   * Create a MockFetch pre-loaded with responses from a HAR entries array.
+   * Each HAR entry is registered as a mock route keyed by request URL.
+   * Used by mock-replay to replay recorded network sessions.
+   */
+  static loadFromHar(entries: any[]): MockFetch {
+    const instance = new MockFetch();
+    for (const entry of entries) {
+      const url = entry.request?.url ?? entry.url;
+      const method = entry.request?.method ?? entry.method ?? 'GET';
+      const status = entry.response?.status ?? entry.status ?? 200;
+      const body = entry.response?.content?.text ?? entry.responseBody ?? '';
+      const contentType = entry.response?.content?.mimeType ?? 'application/json';
+      if (url) {
+        instance.register(url, {
+          status,
+          body,
+          headers: { 'content-type': contentType },
+        });
+      }
+    }
+    return instance;
+  }
 }

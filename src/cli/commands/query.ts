@@ -1,5 +1,6 @@
 import type { ParsedArgs, CommandResult } from '../types';
 import { renderUrl } from './render';
+import { formatOutput } from '../format';
 import { getByTestId, getAllByTestId } from '../../queries/test-id';
 import { getByRole, getAllByRole } from '../../queries/role';
 import { getByLabel, getAllByLabel } from '../../queries/label';
@@ -38,16 +39,18 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
         text: (el.textContent ?? '').trim().slice(0, 200),
         id: el.getAttribute?.('id') ?? undefined,
       }));
+      const textData = {
+        command: 'query',
+        status: results.length > 0 ? 'found' : 'not-found',
+        strategy: 'text',
+        search: textSearch,
+        count: results.length,
+        results,
+      };
       return {
         exitCode: results.length > 0 ? 0 : 1,
-        data: {
-          command: 'query',
-          status: results.length > 0 ? 'found' : 'not-found',
-          strategy: 'text',
-          search: textSearch,
-          count: results.length,
-          results,
-        },
+        output: formatOutput(textData, args.format ?? 'json'),
+        data: textData,
       };
     }
 
@@ -82,9 +85,11 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       id: el.getAttribute?.('id') ?? undefined,
     }));
 
+    const queryData = { command: 'query', status: 'ok', strategy: args.selectorStrategy, count: results.length, results };
     return {
       exitCode: 0,
-      data: { command: 'query', status: 'ok', strategy: args.selectorStrategy, count: results.length, results },
+      output: formatOutput(queryData, args.format ?? 'json'),
+      data: queryData,
     };
   } catch (err: any) {
     return {

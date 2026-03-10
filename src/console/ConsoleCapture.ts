@@ -72,6 +72,15 @@ export interface ConsoleCaptureOptions {
 
 // ═══════════════════════════════════════════════════════════════════════
 // Global singleton tracker
+//
+// KNOWN LIMITATION: Only one ConsoleCapture instance can be active at a
+// time per Node.js process. Calling install() on a second instance
+// silently replaces the first (the original console methods are saved
+// by the new instance, not the old one). This means parallel usage in
+// Vitest's --pool=threads mode will produce cross-worker contamination.
+//
+// For parallel test isolation, pass a scoped console object to each
+// environment rather than monkey-patching globalThis.console.
 // ═══════════════════════════════════════════════════════════════════════
 
 let _activeInstance: ConsoleCapture | null = null;
