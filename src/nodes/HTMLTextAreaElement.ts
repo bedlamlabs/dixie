@@ -158,15 +158,11 @@ export class HTMLTextAreaElement extends Element {
   }
 
   focus(): void {
-    super.focus();
+    // no-op in CLI browser
   }
 
   blur(): void {
-    super.blur();
-  }
-
-  protected _copyCloneState(clone: Element): void {
-    (clone as HTMLTextAreaElement)._value = this._value;
+    // no-op in CLI browser
   }
 
   // ── Validation ────────────────────────────────────────────────────

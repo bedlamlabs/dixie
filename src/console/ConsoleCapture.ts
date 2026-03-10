@@ -68,11 +68,6 @@ export interface ConsoleCaptureOptions {
   captureInfo?: boolean;
   /** Capture console.debug calls (default: false). */
   captureDebug?: boolean;
-  /**
-   * v4: When false, install() is a no-op (does not modify globalThis.console).
-   * Used by RenderContext for per-context isolation. Default: true (legacy behavior).
-   */
-  globalInstall?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -186,7 +181,6 @@ export class ConsoleCapture {
   private _captureLog: boolean;
   private _captureInfo: boolean;
   private _captureDebug: boolean;
-  private _globalInstall: boolean;
 
   // ── Saved originals ───────────────────────────────────────────────
   private _origError: typeof console.error | null = null;
@@ -217,7 +211,6 @@ export class ConsoleCapture {
     this._captureLog = opts.captureLog ?? false;
     this._captureInfo = opts.captureInfo ?? false;
     this._captureDebug = opts.captureDebug ?? false;
-    this._globalInstall = opts.globalInstall ?? true;
   }
 
   /**
@@ -261,20 +254,10 @@ export class ConsoleCapture {
    *
    * If another ConsoleCapture is already installed, it is uninstalled first.
    * Calling install() on an already-installed instance is a no-op.
-   *
-   * v4: When globalInstall is false (used by RenderContext for per-context
-   * isolation), install() marks the instance as installed but does NOT
-   * modify globalThis.console.
    */
   install(): void {
     // Idempotent: if already installed, do nothing
     if (this._installed) return;
-
-    // v4: per-context mode — don't touch globalThis.console
-    if (!this._globalInstall) {
-      this._installed = true;
-      return;
-    }
 
     // If another instance is active, uninstall it
     if (_activeInstance !== null && _activeInstance !== this) {
@@ -328,51 +311,24 @@ export class ConsoleCapture {
   }
 
   /**
-   * Capture an error message directly (for per-context use without globalThis modification).
-   */
-  captureError(...args: unknown[]): void {
-    this._rawErrors.push(stringifyArgs(args));
-    this._cachedErrors = null;
-  }
-
-  /**
-   * Capture a warning message directly (for per-context use without globalThis modification).
-   */
-  captureWarning(...args: unknown[]): void {
-    this._rawWarnings.push(stringifyArgs(args));
-    this._cachedWarnings = null;
-  }
-
-  /**
-   * Capture a log message directly (for per-context use without globalThis modification).
-   */
-  captureLog_(...args: unknown[]): void {
-    this._rawLogs.push(stringifyArgs(args));
-    this._cachedLogs = null;
-  }
-
-  /**
    * Restore original console methods. No-op if not installed.
-   * v4: When globalInstall is false, just marks as uninstalled (nothing to restore).
    */
   uninstall(): void {
     if (!this._installed) return;
 
-    // Only restore globalThis.console if we modified it
-    if (this._globalInstall) {
-      if (this._origError) console.error = this._origError;
-      if (this._origWarn) console.warn = this._origWarn;
-      if (this._origLog) console.log = this._origLog;
-      if (this._origInfo) console.info = this._origInfo;
-      if (this._origDebug) console.debug = this._origDebug;
+    // Restore originals
+    if (this._origError) console.error = this._origError;
+    if (this._origWarn) console.warn = this._origWarn;
+    if (this._origLog) console.log = this._origLog;
+    if (this._origInfo) console.info = this._origInfo;
+    if (this._origDebug) console.debug = this._origDebug;
 
-      // Clear saved references
-      this._origError = null;
-      this._origWarn = null;
-      this._origLog = null;
-      this._origInfo = null;
-      this._origDebug = null;
-    }
+    // Clear saved references
+    this._origError = null;
+    this._origWarn = null;
+    this._origLog = null;
+    this._origInfo = null;
+    this._origDebug = null;
 
     this._installed = false;
     if (_activeInstance === this) {

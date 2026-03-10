@@ -108,7 +108,7 @@ export class EnvironmentPool {
    * Returns from pool if available, creates new if pool empty (up to maxSize).
    * Throws if at maxSize with all environments in use.
    */
-  acquire(options?: { url?: string }): DixieEnvironment {
+  acquire(): DixieEnvironment {
     if (this._drained) {
       throw new Error('EnvironmentPool has been drained and cannot be used.');
     }
@@ -128,22 +128,6 @@ export class EnvironmentPool {
         `EnvironmentPool exhausted: all ${this._maxSize} environments are in use. ` +
         `Increase maxSize or release environments before acquiring more.`
       );
-    }
-
-    // If a URL was specified, update the environment's location
-    if (options?.url) {
-      try {
-        env.window.location.href = options.url;
-      } catch {
-        // Some location implementations may not support href setter directly
-        // Fall back to setting pathname if possible
-        try {
-          const parsed = new URL(options.url);
-          env.location.pathname = parsed.pathname;
-        } catch {
-          // Best effort — skip if location can't be updated
-        }
-      }
     }
 
     this._inUse.add(env);

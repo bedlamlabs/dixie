@@ -5,7 +5,7 @@
  * by the build loop. Each round adds a new capability.
  */
 
-export const VERSION = '4.0.0';
+export const VERSION = '3.0.0';
 
 // Round 1: Node tree structure
 export { Node } from './nodes/Node';
@@ -122,7 +122,7 @@ export type { RenderResult, RenderOptions } from './render';
 export { parseArgs, dispatch } from './cli';
 export { formatOutput } from './cli/format';
 export { resolveConfig, domainFromUrl } from './cli/config-loader';
-export type { ParsedArgs, CommandResult, DixieConfig, AuthStrategy, DixieConfigV4 } from './cli/types';
+export type { ParsedArgs, CommandResult, DixieConfig } from './cli/types';
 
 // Commands
 export { renderUrl } from './cli/commands/render';
@@ -152,11 +152,6 @@ export { getByLabel, getAllByLabel } from './queries/label';
 export { click } from './interaction/click';
 export { type } from './interaction/type';
 export { select } from './interaction/select';
-
-// Agent API
-export { waitForSettle } from './interaction/waitForSettle';
-export { action } from './interaction/action';
-export type { ActionResult } from './interaction/action';
 
 // Execution
 export { createVmContext } from './execution/vm-context';

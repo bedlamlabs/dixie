@@ -97,8 +97,7 @@ export class DixieAssertions {
     const body = this.doc.body;
 
     // Fast path: no body or no children at all
-    const bodyChildren = body ? body.childNodes : null;
-    if (!body || !bodyChildren || bodyChildren.length === 0) {
+    if (!body || body._children.length === 0) {
       return {
         passed: false,
         assertion: 'Body has content',
@@ -108,8 +107,7 @@ export class DixieAssertions {
 
     // Fast path: if any child is an element, we definitely have content
     let hasElementChild = false;
-    for (let i = 0; i < bodyChildren.length; i++) {
-      const child = bodyChildren[i];
+    for (const child of body._children) {
       if (child.nodeType === 1) { // ELEMENT_NODE
         hasElementChild = true;
         break;
@@ -282,14 +280,6 @@ export class DixieAssertions {
       passed: true,
       assertion: `Element count: ${count} matching '${selector}'`,
     };
-  }
-
-  /**
-   * Returns true if an element matching the selector exists.
-   * Convenience wrapper around expectElement().
-   */
-  hasElement(selector: string): boolean {
-    return this.expectElement(selector).passed;
   }
 
   // ── Batch runner ────────────────────────────────────────────────────

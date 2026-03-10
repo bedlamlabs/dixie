@@ -243,6 +243,31 @@ export function parseHTML(html: string, document: Document): Node[] {
         result.push(el);
       }
 
+      // Raw-text elements (<script>, <style>): switch to raw-text mode.
+      // Scan character-by-character for the matching close tag without
+      // interpreting '<' as a new tag boundary (HTML spec §8.2.4).
+      if (tagNameLower === 'script' || tagNameLower === 'style') {
+        const closePat = '</' + tagNameLower;
+        const rawStart = tagEnd + 1;
+        // Case-insensitive search for the close tag
+        const htmlLower = html.toLowerCase();
+        const rawEnd = htmlLower.indexOf(closePat, rawStart);
+        const textEnd = rawEnd === -1 ? len : rawEnd;
+        const rawText = html.substring(rawStart, textEnd);
+        if (rawText) {
+          fastAppend(el, document.createTextNode(rawText));
+        }
+        if (rawEnd !== -1) {
+          // Skip to after '>' of the close tag (e.g. </script>)
+          const closeTagGt = html.indexOf('>', rawEnd);
+          pos = closeTagGt !== -1 ? closeTagGt + 1 : len;
+        } else {
+          pos = len;
+        }
+        // Do NOT push raw-text element onto stack — content is fully consumed
+        continue;
+      }
+
       // Void elements are self-closing — don't push onto stack
       if (!VOID_ELEMENTS.has(tagNameLower)) {
         stack[stackLen] = el;

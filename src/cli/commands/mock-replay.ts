@@ -1,6 +1,7 @@
 import type { ParsedArgs, CommandResult } from '../types';
 import { MockFetch } from '../../fetch/MockFetch';
 import { renderUrl } from './render';
+import { formatOutput } from '../format';
 
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
@@ -38,15 +39,14 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
     });
     const renderMs = Math.round((performance.now() - start) * 100) / 100;
 
-    return {
-      exitCode: 0,
-      data: {
-        url: args.url,
-        renderMs,
-        elementCount: result.document.querySelectorAll('*').length,
-        replayedAt: new Date().toISOString(),
-      },
+    const data = {
+      url: args.url,
+      renderMs,
+      elementCount: result.document.querySelectorAll('*').length,
+      replayedAt: new Date().toISOString(),
     };
+    const output = formatOutput(data, args.format ?? 'json');
+    return { exitCode: 0, output, data };
   } catch (err: any) {
     return {
       exitCode: 1,

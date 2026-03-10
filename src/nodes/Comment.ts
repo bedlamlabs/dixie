@@ -17,9 +17,7 @@ export class Comment extends Node {
   }
 
   set data(value: string) {
-    const oldValue = this._textData ?? '';
     this._textData = value;
-    this._notifyCharacterDataMutation(oldValue);
   }
 
   get length(): number {

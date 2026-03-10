@@ -1,48 +1,38 @@
 {
   "name": "@bedlamlabs/dixie",
-  "version": "4.0.0",
-  "description": "CLI browser — render web pages, query DOM, run tests, all without a real browser",
+  "version": "0.4.0",
+  "description": "DOM-level CLI browser for AI agents. Render pages, query elements, run tests, capture network activity — all without a real browser.",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "bin": {
-    "dixie": "./dist/dixie.mjs"
-  },
+  "main": "./src/index.ts",
   "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./package.json": "./package.json"
+    ".": "./src/index.ts",
+    "./cli": "./src/cli/cli.ts"
   },
-  "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "build": "tsc",
-    "build:cli": "esbuild bin/dixie.ts --bundle --platform=node --format=esm --outfile=dist/dixie.mjs --external:esbuild --external:js-yaml --banner:js='#!/usr/bin/env node' && chmod +x dist/dixie.mjs",
-    "typecheck": "tsc --noEmit"
+  "bin": {
+    "dixie": "./bin/dixie.ts"
   },
-  "keywords": ["browser", "cli", "dom", "testing", "agents", "headless", "render"],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/bedlamlabs/dixie"
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "esbuild": "^0.21.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
   },
   "license": "MIT",
-  "dependencies": {},
-  "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.0.0",
-    "esbuild": "^0.27.3",
-    "js-yaml": "^4.1.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
-  },
-  "peerDependencies": {
-    "playwright": ">=1.40.0"
-  },
-  "peerDependenciesMeta": {
-    "playwright": {
-      "optional": true
-    }
+  "keywords": [
+    "dom",
+    "headless",
+    "agent",
+    "testing",
+    "cli",
+    "browser"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bedlamlabs/dixie.git"
   }
 }

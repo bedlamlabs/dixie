@@ -1,12 +1,13 @@
 import type { ParsedArgs, CommandResult } from '../types';
 import { createDixieEnvironment } from '../../environment';
+import { formatOutput } from '../format';
 
 export interface BenchmarkResult {
   timing: { median: number; mean: number; p95: number; min: number; max: number };
   elementCount: number;
 }
 
-export function computeStats(values: number[]) {
+function computeStats(values: number[]) {
   if (values.length === 0) return { median: 0, mean: 0, p95: 0, min: 0, max: 0 };
   const sorted = [...values].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
@@ -36,25 +37,23 @@ export async function runBenchmark(options: { html: string; iterations: number }
 }
 
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
-  try {
-    const html = '<div><h1>Benchmark</h1><p>Test content</p></div>';
-    const iterations = args.samples ?? 5;
-    const result = await runBenchmark({ html, iterations });
-
-    return {
-      exitCode: 0,
-      data: {
-        command: 'bench',
-        status: 'ok',
-        iterations,
-        ...result,
-      },
-    };
-  } catch (err: any) {
+  if (!args.url) {
     return {
       exitCode: 1,
-      data: { command: 'bench', error: err.message },
-      errors: [{ code: 'BENCH_ERROR', message: err.message }],
+      errors: [{ code: 'MISSING_URL', message: 'bench requires a URL' }],
     };
   }
+
+  // Fetch HTML from URL; gracefully handle unreachable servers
+  let html = '';
+  try {
+    const response = await fetch(args.url);
+    html = await response.text();
+  } catch {
+    // No server / unreachable — benchmark with empty HTML (measures parse overhead)
+  }
+
+  const result = await runBenchmark({ html, iterations: 100 });
+  const output = formatOutput(result, args.format ?? 'json');
+  return { exitCode: 0, output, data: result };
 }

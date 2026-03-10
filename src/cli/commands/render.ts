@@ -1,16 +1,22 @@
-import type { ParsedArgs, CommandResult, DixieConfig, DixieConfigV4 } from '../types';
+import type { ParsedArgs, CommandResult, DixieConfig } from '../types';
 import { createDixieEnvironment } from '../../environment';
 import { createVmContext } from '../../execution/vm-context';
 import { loadScripts } from '../../execution/script-loader';
+import { flushReactRender } from '../../execution/event-loop-flush';
 import { resolveConfig } from '../config-loader';
 import { formatOutput } from '../format';
+import type { HarRecorder } from '../../har/recorder';
 import * as path from 'node:path';
 
 export interface RenderOptions {
   token?: string;
-  config?: DixieConfig | DixieConfigV4;
+  config?: DixieConfig;
   timeout?: number;
   noJs?: boolean;
+  /** Explicit path to a dixie config file — errors thrown (not swallowed) */
+  configPath?: string;
+  /** HAR recorder to capture the initial HTML fetch */
+  harRecorder?: HarRecorder;
 }
 
 export interface RenderResult {
@@ -36,11 +42,17 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   let configSource = 'defaults';
 
   if (!config && !url.startsWith('data:')) {
-    try {
-      config = await resolveConfig(url, process.cwd());
-      if (config) configSource = 'file';
-    } catch {
-      configSource = 'defaults';
+    if (options?.configPath) {
+      // Explicit config path — let errors propagate (user error if path is wrong)
+      config = await resolveConfig(url, process.cwd(), options.configPath);
+      configSource = 'file';
+    } else {
+      try {
+        config = await resolveConfig(url, process.cwd());
+        if (config) configSource = 'file';
+      } catch {
+        configSource = 'defaults';
+      }
     }
   }
 
@@ -54,34 +66,21 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     tokenSource = 'provided';
     tokenValue = token;
   } else if (config?.auth) {
-    // Check if this is a v4 AuthStrategy (has 'type' property)
-    const authConfig = config.auth as any;
-    if (authConfig.type && !authConfig.baseUrl) {
-      // v4 AuthStrategy — use acquire() directly if available
-      if (authConfig.type !== 'none' && authConfig.acquire) {
-        try {
-          token = await authConfig.acquire();
-          tokenSource = 'config';
-        } catch (err: any) {
-          authMeta = { status: 'failed', reason: err.message ?? String(err) };
-        }
+    // Try to acquire token from config auth
+    try {
+      const { TokenAcquisition } = await import('../../auth');
+      const ta = new TokenAcquisition(config.auth);
+      const result = await ta.acquire();
+      if (result.userToken && result.source === 'live') {
+        token = result.userToken;
+        tokenSource = 'config';
+      } else if (result.source === 'mock' && result.error) {
+        // Auth server unreachable — continue without auth
+        authMeta = { status: 'failed', reason: result.error };
       }
-      // type === 'none' — no auth needed
-    } else {
-      // Legacy TokenConfig — try to acquire token from server
-      try {
-        const { TokenAcquisition } = await import('../../auth');
-        const ta = new TokenAcquisition(authConfig);
-        const result = await ta.acquire();
-        if (result.userToken && result.source === 'live') {
-          token = result.userToken;
-          tokenSource = 'config';
-        } else if (result.source === 'mock' && result.error) {
-          authMeta = { status: 'failed', reason: result.error };
-        }
-      } catch (err: any) {
-        authMeta = { status: 'failed', reason: err.message ?? String(err) };
-      }
+    } catch (err: any) {
+      // Auth module error — continue without auth
+      authMeta = { status: 'failed', reason: err.message ?? String(err) };
     }
   }
 
@@ -94,6 +93,31 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   } else if (url.startsWith('data:')) {
     html = '';
   } else {
+    // Wrap globalThis.fetch temporarily if a HAR recorder is provided so it
+    // can intercept the initial HTML fetch (renderUrl uses raw fetch here, not MockFetch)
+    const originalFetch = (globalThis as any).fetch;
+    if (options?.harRecorder) {
+      const recorder = options.harRecorder;
+      (globalThis as any).fetch = async (reqUrl: string, reqOpts?: any) => {
+        const fetchStart = performance.now();
+        const resp = await originalFetch(reqUrl, reqOpts);
+        const durationMs = performance.now() - fetchStart;
+        const responseBody = await resp.text();
+        recorder.record({
+          method: reqOpts?.method ?? 'GET',
+          url: reqUrl,
+          status: resp.status,
+          responseBody,
+          durationMs,
+        });
+        return new Response(responseBody, {
+          status: resp.status,
+          statusText: resp.statusText ?? '',
+          headers: resp.headers,
+        });
+      };
+    }
+
     try {
       const headers: Record<string, string> = {};
       if (token) {
@@ -102,15 +126,13 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       const response = await fetch(url, { headers });
       html = await response.text();
     } catch (err: any) {
-      // If a config was explicitly provided (v4 mode), degrade gracefully
-      // with an empty document instead of throwing
-      if (options?.config) {
-        html = '';
-        errors.push({ code: 'FETCH_FAILED', message: `Could not reach ${url}: ${err.message}` });
-      } else {
-        const error = new Error(`Could not reach ${url}: ${err.message}`);
-        (error as any).code = 'FETCH_FAILED';
-        throw error;
+      const error = new Error(`Could not reach ${url}: ${err.message}`);
+      (error as any).code = 'FETCH_FAILED';
+      throw error;
+    } finally {
+      // Restore original fetch whether or not an error occurred
+      if (options?.harRecorder) {
+        (globalThis as any).fetch = originalFetch;
       }
     }
   }
@@ -147,8 +169,26 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       script.parentNode?.removeChild(script);
     }
   } else {
+    const scriptDeadline = Date.now() + (options?.timeout ?? 5000);
     try {
-      loadScripts(ctx);
+      const scriptErrors = await loadScripts(ctx, {
+        baseUrl: url,
+        token,
+        deadline: scriptDeadline,
+      });
+      errors.push(...scriptErrors);
+
+      // Flush React's async scheduler (MessageChannel-deferred reconciliation).
+      // Yields the event loop until the DOM element count stabilizes, allowing
+      // React's first render pass and any immediate effects to complete.
+      // For non-SPA pages, this exits immediately (DOM already stable).
+      const mountSelector = config?.spa?.mountSelector ?? '#root > *';
+      const flushBudget = Math.max(500, scriptDeadline - Date.now());
+      await flushReactRender(ctx.document, {
+        timeoutMs: flushBudget,
+        stableRounds: 3,
+        waitForSelector: mountSelector,
+      });
     } catch (err: any) {
       if (err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || /timed out|timeout/i.test(err.message)) {
         errors.push({ code: 'SCRIPT_TIMEOUT', message: err.message });
@@ -180,7 +220,6 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
     return {
       exitCode: 1,
-      data: { command: 'render', error: 'render requires a URL' },
       errors: [{ code: 'MISSING_URL', message: 'render requires a URL' }],
     };
   }
@@ -190,6 +229,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       token: args.token,
       timeout: args.timeout,
       noJs: args.noJs,
+      configPath: args.config,
     });
 
     const output = formatOutput({
@@ -207,7 +247,6 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
   } catch (err: any) {
     return {
       exitCode: 1,
-      data: { command: 'render', error: err.message },
       errors: [{ code: err.code ?? 'RENDER_ERROR', message: err.message }],
     };
   }

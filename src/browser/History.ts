@@ -4,6 +4,9 @@
  *
  * Maintains an internal stack of entries. Navigation dispatches a
  * 'popstate' event on the associated window (if one is linked).
+ *
+ * pushState and replaceState update window.location to match the new URL,
+ * mirroring real browser behavior where the History API and Location are coupled.
  */
 
 import { Event } from '../events/Event';
@@ -38,6 +41,11 @@ export class History {
       url: url ?? null,
     });
     this._index = this._entries.length - 1;
+
+    // Sync location with the new URL (mirrors real browser behavior)
+    if (url != null && this._window?.location) {
+      this._syncLocation(url);
+    }
   }
 
   replaceState(state: unknown, title: string, url?: string | null): void {
@@ -46,6 +54,11 @@ export class History {
       title,
       url: url ?? null,
     };
+
+    // Sync location with the new URL
+    if (url != null && this._window?.location) {
+      this._syncLocation(url);
+    }
   }
 
   back(): void {
@@ -64,11 +77,34 @@ export class History {
 
     this._index = newIndex;
 
+    // Sync location with the navigated-to entry's URL
+    const entry = this._entries[this._index];
+    if (entry.url != null && this._window?.location) {
+      this._syncLocation(entry.url);
+    }
+
     // Dispatch popstate event on the associated window
     if (this._window) {
       const popstateEvent = new Event('popstate', { bubbles: false, cancelable: false });
       (popstateEvent as any).state = this._entries[this._index].state;
       this._window.dispatchEvent(popstateEvent);
+    }
+  }
+
+  /** Update window.location to reflect a History URL change. */
+  private _syncLocation(url: string): void {
+    const loc = this._window.location;
+    if (!loc) return;
+
+    // URL can be absolute or relative (path-only like "/app/dashboard")
+    try {
+      const resolved = new URL(url, loc.href);
+      // Only update pathname/search/hash — don't change origin
+      loc.pathname = resolved.pathname;
+      loc.search = resolved.search;
+      loc.hash = resolved.hash;
+    } catch {
+      // Invalid URL — silently ignore per browser behavior
     }
   }
 }

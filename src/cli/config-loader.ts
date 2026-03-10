@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { DixieConfig, DixieConfigV4 } from './types';
+import type { DixieConfig } from './types';
 
 export function domainFromUrl(url: string): string {
   let parsed: URL;
@@ -16,42 +16,18 @@ export function domainFromUrl(url: string): string {
 
 const CONFIG_EXTENSIONS = ['.ts', '.js', '.mjs'];
 
-const DEFAULT_CONFIG: DixieConfigV4 = {
-  baseUrl: '',
-  appEntry: undefined,
-  routes: [],
-  auth: { type: 'none', acquire: async () => '' },
-  mockDataDir: undefined,
-};
-
 export async function resolveConfig(
-  urlOrOptions: string | { configPath?: string },
-  projectRoot?: string,
+  url: string,
+  projectRoot: string,
   explicitConfig?: string,
-): Promise<DixieConfigV4 | DixieConfig | null> {
-  // v4 API: called with { configPath? }
-  if (typeof urlOrOptions === 'object') {
-    if (urlOrOptions.configPath) {
-      try {
-        const loaded = await loadConfigFile(urlOrOptions.configPath);
-        return { ...DEFAULT_CONFIG, ...loaded } as DixieConfigV4;
-      } catch {
-        return { ...DEFAULT_CONFIG };
-      }
-    }
-    return { ...DEFAULT_CONFIG };
-  }
-
-  // Legacy API: called with (url, projectRoot, explicitConfig?)
-  const url = urlOrOptions;
-
+): Promise<DixieConfig | null> {
   // Explicit --config overrides domain discovery
   if (explicitConfig) {
     return loadConfigFile(explicitConfig);
   }
 
   const domain = domainFromUrl(url);
-  const dixieDir = path.join(projectRoot!, '.dixie');
+  const dixieDir = path.join(projectRoot, '.dixie');
 
   for (const ext of CONFIG_EXTENSIONS) {
     const configPath = path.join(dixieDir, `${domain}${ext}`);

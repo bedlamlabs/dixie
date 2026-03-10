@@ -157,9 +157,8 @@ export class DiffSnapshot {
     const elementChildren: SnapshotNode[] = [];
     let childElementIndex = 0;
 
-    const children = el.childNodes;
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
+    for (let i = 0; i < el._children.length; i++) {
+      const child = el._children[i];
       if (child.nodeType === Node.TEXT_NODE) {
         const trimmed = (child._textData ?? '').trim();
         if (trimmed) {

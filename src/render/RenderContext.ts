@@ -88,37 +88,18 @@ export class RenderContext {
   private _parseMs: number = 0;
   private _renderMs: number = 0;
   private _destroyed = false;
+  // Stored at construction time so destroy() can compare by reference (not re-bind)
+  private _boundFetch!: (...args: any[]) => any;
 
-  /** Direct access to the environment's document. */
-  get document() {
-    return this.env.document;
-  }
-
-  /** Direct access to the environment's window. */
-  get window() {
-    return this.env.window;
-  }
-
-  /** Scoped access to all per-context globals (document, fetch, console, window). */
-  get scope() {
-    return {
-      document: this.env.document,
-      fetch: this.fetch,
-      console: this.console,
-      window: this.env.window,
-    };
-  }
-
-  constructor(options?: { url?: string; mockRoutes?: Record<string, any> }) {
+  constructor(options?: { mockRoutes?: Record<string, any> }) {
     this._startTime = Date.now();
 
-    // Create environment with optional URL
-    this.env = createDixieEnvironment({ url: options?.url ?? 'http://localhost/' });
+    // Create environment
+    this.env = createDixieEnvironment({ url: 'http://localhost/' });
 
     // Create console capture (capture logs too for full picture)
-    // v4: globalInstall: false prevents install() from modifying globalThis.console
-    // This enables parallel contexts with independent console capture
-    this.console = new ConsoleCapture({ captureLog: true, globalInstall: false });
+    this.console = new ConsoleCapture({ captureLog: true });
+    this.console.install();
 
     // Create mock fetch and register routes
     this.fetch = new MockFetch();
@@ -128,7 +109,10 @@ export class RenderContext {
       }
     }
 
-    // v4: fetch is NOT installed on globalThis — access via ctx.fetch or ctx.scope.fetch
+    // Store the bound reference at construction time so destroy() can
+    // compare by identity (not create a new bound function each time).
+    this._boundFetch = this.fetch.fetch.bind(this.fetch);
+    (globalThis as any).fetch = this._boundFetch;
   }
 
   /**
@@ -309,14 +293,18 @@ export class RenderContext {
 
   /**
    * Clean up the environment and restore console.
-   * v4: No globalThis cleanup needed since we no longer mutate it.
    */
   destroy(): void {
     if (this._destroyed) return;
     this._destroyed = true;
 
-    // Uninstall console capture if it was explicitly installed
     this.console.uninstall();
+
+    // Remove global fetch — compare by the stored reference (bind() creates a new
+    // function each call, so re-binding here would always compare unequal)
+    if ((globalThis as any).fetch === this._boundFetch) {
+      delete (globalThis as any).fetch;
+    }
 
     this.env.destroy();
   }

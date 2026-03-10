@@ -6,9 +6,11 @@ import { NamedNodeMap } from '../collections/NamedNodeMap';
 import { DOMTokenList } from '../collections/DOMTokenList';
 import { HTMLCollection } from '../collections/HTMLCollection';
 import { CSSStyleDeclaration } from '../css/CSSStyleDeclaration';
-import { _getElementsByClassName, _getElementsByTagName } from './TreeWalk';
+import { _getElementsByClassName, _getElementsByTagName } from './Document';
 import { parseHTML } from '../parser/HTMLParser';
 import { serializeHTML } from '../parser/HTMLSerializer';
+import { Event } from '../events/Event';
+import { triggerMutation } from '../observers/MutationObserver';
 import {
   parseSelector,
   matchesSelector,
@@ -17,8 +19,6 @@ import {
   _fastQueryFirst,
   _fastQueryAll,
 } from '../selectors';
-import { MouseEvent } from '../events/MouseEvent';
-import { FocusEvent } from '../events/FocusEvent';
 
 /**
  * Element — a DOM element node (e.g. <div>, <span>, <p>).
@@ -36,7 +36,6 @@ export class Element extends Node {
   _namespaceURI: string | null = null;
 
   private _attributes: NamedNodeMap;
-  private _attributeIndex: Map<string, Attr> | null = null;
   private _classList: DOMTokenList | null = null;
   private _style: CSSStyleDeclaration | null = null;
   private _children_collection: HTMLCollection | null = null;
@@ -66,24 +65,11 @@ export class Element extends Node {
 
   // ── Focus / interaction stubs ──────────────────────────────────────
 
-  focus(_options?: any): void {
-    this.dispatchEvent(new FocusEvent('focus', { bubbles: false }));
-    const doc = this.ownerDocument;
-    if (doc) (doc as any)._activeElement = this;
-  }
-
-  blur(): void {
-    this.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
-    const doc = this.ownerDocument;
-    if (doc && (doc as any)._activeElement === this) {
-      (doc as any)._activeElement = doc.body ?? null;
-    }
-  }
-
+  focus(_options?: any): void {}
+  blur(): void {}
   click(): void {
-    this.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    this.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-    this.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const event = new Event('click', { bubbles: true, cancelable: true });
+    this.dispatchEvent(event);
   }
   scrollIntoView(_arg?: any): void {}
 
@@ -144,7 +130,6 @@ export class Element extends Node {
     const attr = new Attr(name, value);
     attr.ownerElement = this;
     this._attributes._attrs.push(attr);
-    this._attributeIndex?.set(name, attr);
   }
 
   get attributes(): NamedNodeMap {
@@ -152,21 +137,21 @@ export class Element extends Node {
   }
 
   getAttribute(name: string): string | null {
-    const attr = this._getAttributeNode(name);
+    const attr = this._attributes.getNamedItem(name);
     return attr ? attr.value : null;
   }
 
   setAttribute(name: string, value: string): void {
     const lower = name.toLowerCase();
     const strValue = String(value);
-    const existing = this._getAttributeNode(lower);
+    const existing = this._attributes.getNamedItem(lower);
     if (existing) {
       const oldValue = existing.value;
       // Update id index if changing an id
       if (lower === 'id') {
         const doc = this.ownerDocument;
         if (doc && doc._idIndex) {
-          const oldId = oldValue;
+          const oldId = existing.value;
           if (oldId && doc._idIndex.get(oldId) === this) {
             doc._idIndex.delete(oldId);
           }
@@ -176,12 +161,12 @@ export class Element extends Node {
         }
       }
       existing.value = strValue;
-      this._notifyAttributeMutation(lower, oldValue);
+      this._notifyMutation();
+      triggerMutation('attributes', this, { attributeName: lower, oldValue });
     } else {
       const attr = new Attr(lower, strValue);
       attr.ownerElement = this;
       this._attributes.setNamedItem(attr);
-      this._attributeIndex?.set(lower, attr);
       // Update id index for new id attribute — only if no other element owns this ID
       if (lower === 'id' && strValue) {
         const doc = this.ownerDocument;
@@ -189,13 +174,14 @@ export class Element extends Node {
           doc._idIndex.set(strValue, this);
         }
       }
-      this._notifyAttributeMutation(lower, null);
+      this._notifyMutation();
+      triggerMutation('attributes', this, { attributeName: lower, oldValue: null });
     }
   }
 
   removeAttribute(name: string): void {
     const lower = name.toLowerCase();
-    const attr = this._getAttributeNode(lower);
+    const attr = this._attributes.getNamedItem(lower);
     if (attr) {
       const oldValue = attr.value;
       // Update id index if removing an id
@@ -209,13 +195,13 @@ export class Element extends Node {
         }
       }
       this._attributes.removeNamedItem(lower);
-      this._attributeIndex?.delete(lower);
-      this._notifyAttributeMutation(lower, oldValue);
+      this._notifyMutation();
+      triggerMutation('attributes', this, { attributeName: lower, oldValue });
     }
   }
 
   hasAttribute(name: string): boolean {
-    return this._getAttributeNode(name) !== null;
+    return this._attributes.getNamedItem(name) !== null;
   }
 
   // ── id / className ──────────────────────────────────────────────────
@@ -452,15 +438,12 @@ export class Element extends Node {
   // ── Clone ──────────────────────────────────────────────────────────
 
   cloneNode(deep?: boolean): Element {
-    const Constructor = this.constructor as { new (): Element };
-    const clone = this.constructor === Element ? new Element(this.tagName) : new Constructor();
+    const clone = new Element(this.tagName);
     clone.ownerDocument = this.ownerDocument;
-    clone._namespaceURI = this._namespaceURI;
     // Copy attributes
     for (const attr of this._attributes) {
       clone.setAttribute(attr.name, attr.value);
     }
-    this._copyCloneState(clone);
     if (deep) {
       for (const child of this._children) {
         clone.appendChild(child.cloneNode(true));
@@ -503,7 +486,6 @@ export class Element extends Node {
   }
 
   set innerHTML(html: string) {
-    const removedNodes = this._children.slice();
     // Fast-clear all children: detach each child and truncate array
     const children = this._children;
     for (let i = 0; i < children.length; i++) {
@@ -515,7 +497,7 @@ export class Element extends Node {
     children.length = 0;
 
     if (html === '') {
-      this._notifyChildListMutation({ removedNodes });
+      this._notifyMutation();
       return;
     }
 
@@ -536,10 +518,7 @@ export class Element extends Node {
       node.parentNode = this;
       children.push(node);
     }
-    this._notifyChildListMutation({
-      addedNodes: nodes,
-      removedNodes,
-    });
+    this._notifyMutation();
   }
 
   // ── outerHTML ─────────────────────────────────────────────────────
@@ -571,23 +550,9 @@ export class Element extends Node {
 
   private _getOwnerDocument(): any {
     if (this.ownerDocument) return this.ownerDocument;
-    // Fallback: create a minimal Document
-    const { Document } = require('./Document');
-    return new Document();
-  }
-
-  protected _copyCloneState(_clone: Element): void {}
-
-  private _getAttributeNode(name: string): Attr | null {
-    const lower = name.toLowerCase();
-
-    if (!this._attributeIndex) {
-      this._attributeIndex = new Map();
-      for (const attr of this._attributes._attrs) {
-        this._attributeIndex.set(attr.name, attr);
-      }
-    }
-
-    return this._attributeIndex.get(lower) ?? null;
+    // Document.createElement() always sets ownerDocument before returning.
+    // If ownerDocument is unset, this element is orphaned — return null honestly
+    // rather than creating a silent fallback Document via require() (circular dep).
+    return null;
   }
 }

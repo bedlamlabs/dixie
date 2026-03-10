@@ -1,5 +1,6 @@
 import type { ParsedArgs, CommandResult } from '../types';
 import { renderUrl } from './render';
+import { formatOutput } from '../format';
 
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
@@ -14,22 +15,22 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
     const { HarRecorder } = await import('../../har/recorder');
     const recorder = new HarRecorder();
 
-    // Render the URL — for data: URLs no fetch calls will be recorded
+    // Render the URL — pass recorder so fetch interceptor in render.ts populates it
     const result = await renderUrl(args.url, {
       token: args.token,
       timeout: args.timeout,
       noJs: args.noJs,
+      harRecorder: recorder,
     });
 
     const entries = recorder.getEntries();
+    const data = { url: args.url, entries, recordedAt: new Date().toISOString() };
+    const output = formatOutput(data, args.format ?? 'json');
 
     return {
       exitCode: 0,
-      data: {
-        url: args.url,
-        entries,
-        recordedAt: new Date().toISOString(),
-      },
+      output,
+      data,
     };
   } catch (err: any) {
     return {

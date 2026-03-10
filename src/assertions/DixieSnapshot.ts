@@ -110,13 +110,6 @@ export class DixieSnapshot {
   }
 
   /**
-   * Alias for toSummary() — convenience method.
-   */
-  summary(): PageSummary {
-    return this.toSummary();
-  }
-
-  /**
    * Quick numeric summary of page contents.
    * Optimized: single-pass walk counts elements by tag instead of building full arrays.
    */
@@ -145,7 +138,7 @@ export class DixieSnapshot {
     const indent = indents[depth] ?? '  '.repeat(depth);
 
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node.textContent ?? '').trim();
+      const text = (node._textData ?? '').trim();
       if (text.length > 0) {
         const truncated = text.length > 80 ? text.substring(0, 80) + '...' : text;
         lines.push(indent + truncated);
@@ -154,7 +147,7 @@ export class DixieSnapshot {
     }
 
     if (node.nodeType === Node.COMMENT_NODE) {
-      lines.push(indent + '<!--' + (node.textContent ?? '') + '-->');
+      lines.push(indent + '<!--' + (node._textData ?? '') + '-->');
       return;
     }
 
@@ -174,18 +167,18 @@ export class DixieSnapshot {
       lines.push(indent + '<' + tag + attrStr + '>');
 
       // Recurse into children
-      const elChildren = node.childNodes;
-      for (let i = 0; i < elChildren.length; i++) {
-        this._renderNode(elChildren[i], depth + 1, maxDepth, lines, indents);
+      const children = node._children;
+      for (let i = 0; i < children.length; i++) {
+        this._renderNode(children[i], depth + 1, maxDepth, lines, indents);
       }
 
       return;
     }
 
     // Document node — just recurse
-    const docChildren = node.childNodes;
-    for (let i = 0; i < docChildren.length; i++) {
-      this._renderNode(docChildren[i], depth, maxDepth, lines, indents);
+    const children = node._children;
+    for (let i = 0; i < children.length; i++) {
+      this._renderNode(children[i], depth, maxDepth, lines, indents);
     }
   }
 
@@ -296,7 +289,7 @@ export class DixieSnapshot {
    * Fast element walker using index-based loop instead of for-of iterator.
    */
   private _walkElementsFast(root: Node, callback: (el: Element) => void): void {
-    const children = root.childNodes;
+    const children = root._children;
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
       if (child.nodeType === Node.ELEMENT_NODE) {

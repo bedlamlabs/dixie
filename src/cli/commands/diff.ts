@@ -1,34 +1,5 @@
 import type { ParsedArgs, CommandResult } from '../types';
-import * as fs from 'node:fs';
-
-export async function execute(args: ParsedArgs): Promise<CommandResult> {
-  // Expect two positional args: before.json and after.json
-  const beforePath = args.url;
-  const rest = args.rest ?? [];
-  const afterPath = args.selector ?? rest[0];
-
-  if (!beforePath || !afterPath) {
-    return {
-      exitCode: 1,
-      data: { command: 'diff', error: 'diff requires two snapshot file paths' },
-      errors: [{ code: 'MISSING_ARGS', message: 'diff requires two snapshot file paths' }],
-    };
-  }
-
-  try {
-    const before = JSON.parse(fs.readFileSync(beforePath, 'utf-8'));
-    const after = JSON.parse(fs.readFileSync(afterPath, 'utf-8'));
-    const result = diffSnapshots(before, after);
-
-    return { exitCode: 0, data: result };
-  } catch (err: any) {
-    return {
-      exitCode: 1,
-      data: { command: 'diff', error: err.message },
-      errors: [{ code: 'DIFF_ERROR', message: err.message }],
-    };
-  }
-}
+import { formatOutput } from '../format';
 
 export interface DiffChange {
   type: 'added' | 'removed' | 'changed';
@@ -133,4 +104,32 @@ function deepEqual(a: any, b: any): boolean {
     return keysA.every(k => deepEqual(a[k], b[k]));
   }
   return false;
+}
+
+export async function execute(args: ParsedArgs): Promise<CommandResult> {
+  // Support both `rest` (CLI positionals) and `args` (testing shorthand)
+  const positions: string[] = (args as any).args ?? args.rest ?? [];
+  const fileA = positions[0] ?? args.url ?? '';
+  const fileB = positions[1] ?? '';
+
+  if (!fileA || !fileB) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'MISSING_ARGS', message: 'diff requires two file paths' }],
+    };
+  }
+
+  try {
+    const { readFileSync } = await import('node:fs');
+    const before = JSON.parse(readFileSync(fileA, 'utf-8'));
+    const after = JSON.parse(readFileSync(fileB, 'utf-8'));
+    const result = diffSnapshots(before, after);
+    const output = formatOutput(result, args.format ?? 'json');
+    return { exitCode: 0, output, data: result };
+  } catch (err: any) {
+    return {
+      exitCode: 1,
+      errors: [{ code: 'DIFF_ERROR', message: err.message }],
+    };
+  }
 }

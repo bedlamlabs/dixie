@@ -72,6 +72,7 @@ export class HTMLButtonElement extends Element {
   // ── Methods ───────────────────────────────────────────────────────
 
   click(): void {
-    super.click();
+    const event = new Event('click', { bubbles: true, cancelable: true });
+    this.dispatchEvent(event);
   }
 }

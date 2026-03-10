@@ -14,6 +14,7 @@ import { Navigator } from './Navigator';
 import { Screen } from './Screen';
 import { EventSourceStub } from '../network/sse';
 import { WebSocketStub } from '../network/websocket';
+import { DOMParser as DOMParserStub } from './DOMParser';
 
 export { EventTarget };
 
@@ -258,6 +259,7 @@ export class Window extends EventTarget {
 
   readonly EventSource = EventSourceStub;
   readonly WebSocket = WebSocketStub;
+  readonly DOMParser = DOMParserStub;
 
   // ── DOM constructors exposed on window ─────────────────────────
 

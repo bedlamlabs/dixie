@@ -10,6 +10,18 @@ export class NamedNodeMap {
   /** Internal ordered list of attributes. */
   _attrs: Attr[] = [];
 
+  constructor() {
+    // Return a Proxy so numeric indexing (attributes[0]) works like a real NamedNodeMap
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+          return target._attrs[Number(prop)];
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  }
+
   get length(): number {
     return this._attrs.length;
   }
