@@ -266,7 +266,7 @@ Dixie auto-detects configs by matching the URL's domain and port against filenam
 
 ## Why Dixie
 
-Dixie's niche is speed plus breadth for automation pipelines: parse, query, test, record, audit, and diff pages without launching a browser process.
+Dixie was built to help support [ThriveOS](https://thriveos.pro) scale their CI and improve Agent effectiveness (aka reduce the classic verification hallucination phenomena). Dixie's niche is speed plus breadth for automation pipelines: parse, query, test, record, audit, and diff pages without launching a browser process.
 
 ### Comparison
 
