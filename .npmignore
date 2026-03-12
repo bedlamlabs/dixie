@@ -1,0 +1,6 @@
+**/*.vitest.*
+**/*.test.*
+**/*.spec.*
+vitest.config.*
+tsconfig.json
+benchmarks/
