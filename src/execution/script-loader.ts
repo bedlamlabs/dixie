@@ -79,11 +79,14 @@ async function bundleToIife(
             },
           );
 
-          // Relative imports from within our namespace (./chunk.js, ../lib.js)
+          // Relative imports from any namespace (./chunk.js, ../lib.js).
+          // Must NOT restrict to namespace:'dixie-http' — the stdin entry lives
+          // in the default namespace, so relative imports from stdin would fall
+          // through to esbuild's filesystem resolver and fail on HTTPS paths.
           build.onResolve(
-            { filter: /^\.\.?\//, namespace: 'dixie-http' },
+            { filter: /^\.\.?\// },
             (args) => ({
-              path: new URL(args.path, args.importer).toString(),
+              path: new URL(args.path, args.importer || entryUrl).toString(),
               namespace: 'dixie-http',
             }),
           );

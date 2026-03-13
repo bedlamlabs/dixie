@@ -340,6 +340,130 @@ describe('vm-context: addEventListener wired to EventTarget', () => {
   });
 });
 
+// ─── HTTPS SPA bundle tests (task 3958) ──────────────────────────────────────
+// These tests verify that relative chunk imports resolve correctly when the
+// entry script is served over HTTPS. The bug: the esbuild relative-import
+// onResolve handler had namespace:'dixie-http', which excluded stdin entries
+// (default namespace), causing relative imports from the entry to fall through
+// to esbuild's filesystem resolver and fail.
+
+const HTTPS_BASE = 'https://mock-cdn.example';
+const HTTPS_ENTRY_URL = `${HTTPS_BASE}/assets/index-abc.js`;
+const HTTPS_VENDOR_URL = `${HTTPS_BASE}/assets/vendor-xyz.js`;
+const HTTPS_SHARED_URL = `${HTTPS_BASE}/assets/shared-def.js`;
+
+const HTTPS_VENDOR_CODE = `export const VENDOR_TAG = 'vendor-loaded';`;
+const HTTPS_ENTRY_CODE = [
+  `import { VENDOR_TAG } from './vendor-xyz.js';`,
+  `window.__dixie_vendor = VENDOR_TAG;`,
+].join('\n');
+const HTTPS_VENDOR_NESTED = [
+  `import { SHARED_TAG } from './shared-def.js';`,
+  `export const VENDOR_TAG = 'vendor-' + SHARED_TAG;`,
+].join('\n');
+const HTTPS_SHARED_CODE = `export const SHARED_TAG = 'shared-loaded';`;
+
+function makeHttpsFetch(map: Record<string, { status: number; body: string }>) {
+  return vi.fn(async (url: string) => {
+    const entry = map[url];
+    if (!entry) return new Response('Not Found', { status: 404 });
+    return new Response(entry.body, {
+      status: entry.status,
+      headers: { 'Content-Type': 'application/javascript' },
+    });
+  });
+}
+
+describe('script-loader HTTPS SPA: relative chunk imports (task 3958)', () => {
+  let originalFetch3958: typeof globalThis.fetch;
+
+  beforeEach(() => { originalFetch3958 = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch3958; });
+
+  it('AC1: loads HTTPS entry + relative vendor chunk without SCRIPT_BUNDLE_ERROR', async () => {
+    globalThis.fetch = makeHttpsFetch({
+      [HTTPS_ENTRY_URL]: { status: 200, body: HTTPS_ENTRY_CODE },
+      [HTTPS_VENDOR_URL]: { status: 200, body: HTTPS_VENDOR_CODE },
+    }) as any;
+
+    const ctx = createVmContext({ timeout: 10000, url: `${HTTPS_BASE}/app/clients` });
+    ctx.document.body.innerHTML = `<script type="module" src="${HTTPS_ENTRY_URL}"></script>`;
+
+    const errors = await loadScripts(ctx, {
+      baseUrl: `${HTTPS_BASE}/app/clients`,
+      deadline: Date.now() + 10000,
+    });
+
+    expect(errors.filter(e => e.code === 'SCRIPT_BUNDLE_ERROR')).toHaveLength(0);
+    expect((ctx.window as any).__dixie_vendor).toBe('vendor-loaded');
+  });
+
+  it('AC4: localhost regression — relative chunks still resolve', async () => {
+    const LOCAL_ENTRY = 'http://localhost:5001/assets/index-abc.js';
+    const LOCAL_VENDOR = 'http://localhost:5001/assets/vendor-xyz.js';
+    globalThis.fetch = makeHttpsFetch({
+      [LOCAL_ENTRY]: { status: 200, body: HTTPS_ENTRY_CODE },
+      [LOCAL_VENDOR]: { status: 200, body: HTTPS_VENDOR_CODE },
+    }) as any;
+
+    const ctx = createVmContext({ timeout: 10000, url: 'http://localhost:5001/app/clients' });
+    ctx.document.body.innerHTML = `<script type="module" src="${LOCAL_ENTRY}"></script>`;
+
+    const errors = await loadScripts(ctx, {
+      baseUrl: 'http://localhost:5001/app/clients',
+      deadline: Date.now() + 10000,
+    });
+
+    expect(errors.filter(e => e.code === 'SCRIPT_BUNDLE_ERROR')).toHaveLength(0);
+  });
+
+  it('AC5: missing HTTPS chunk returns SCRIPT_BUNDLE_ERROR (not silent)', async () => {
+    const BROKEN = `import './nonexistent-chunk.js'; window.__loaded = true;`;
+    globalThis.fetch = makeHttpsFetch({
+      [HTTPS_ENTRY_URL]: { status: 200, body: BROKEN },
+    }) as any;
+
+    const ctx = createVmContext({ timeout: 10000, url: `${HTTPS_BASE}/app/clients` });
+    ctx.document.body.innerHTML = `<script type="module" src="${HTTPS_ENTRY_URL}"></script>`;
+
+    const errors = await loadScripts(ctx, { baseUrl: `${HTTPS_BASE}/app/clients`, deadline: Date.now() + 10000 });
+    expect(errors.find(e => e.code === 'SCRIPT_BUNDLE_ERROR')).toBeDefined();
+    expect((ctx.window as any).__loaded).toBeUndefined();
+  });
+
+  it('EC1: transitive HTTPS chunk imports (entry → vendor → shared)', async () => {
+    globalThis.fetch = makeHttpsFetch({
+      [HTTPS_ENTRY_URL]: { status: 200, body: HTTPS_ENTRY_CODE },
+      [HTTPS_VENDOR_URL]: { status: 200, body: HTTPS_VENDOR_NESTED },
+      [HTTPS_SHARED_URL]: { status: 200, body: HTTPS_SHARED_CODE },
+    }) as any;
+
+    const ctx = createVmContext({ timeout: 10000, url: `${HTTPS_BASE}/app/clients` });
+    ctx.document.body.innerHTML = `<script type="module" src="${HTTPS_ENTRY_URL}"></script>`;
+
+    const errors = await loadScripts(ctx, { baseUrl: `${HTTPS_BASE}/app/clients`, deadline: Date.now() + 10000 });
+    expect(errors.filter(e => e.code === 'SCRIPT_BUNDLE_ERROR')).toHaveLength(0);
+    expect((ctx.window as any).__dixie_vendor).toBe('vendor-shared-loaded');
+  });
+
+  it('EC3: auth token forwarded to HTTPS chunk fetches', async () => {
+    const capturedUrls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: string, opts?: RequestInit) => {
+      const h = opts?.headers as Record<string, string> | undefined;
+      if (h?.['Authorization']) capturedUrls.push(url as string);
+      if (url === HTTPS_ENTRY_URL) return new Response(HTTPS_ENTRY_CODE, { status: 200 });
+      if (url === HTTPS_VENDOR_URL) return new Response(HTTPS_VENDOR_CODE, { status: 200 });
+      return new Response('Not Found', { status: 404 });
+    }) as any;
+
+    const ctx = createVmContext({ timeout: 10000, url: `${HTTPS_BASE}/app/clients` });
+    ctx.document.body.innerHTML = `<script type="module" src="${HTTPS_ENTRY_URL}"></script>`;
+    await loadScripts(ctx, { baseUrl: `${HTTPS_BASE}/app/clients`, token: 'test-token', deadline: Date.now() + 10000 });
+
+    expect(capturedUrls.length).toBeGreaterThan(0);
+  });
+});
+
 describe('CLI --text flag: query command', () => {
   it('parses --text flag from argv', async () => {
     const { parseArgs } = await import('../cli/index');
