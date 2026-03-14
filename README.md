@@ -50,7 +50,7 @@ If the first argument is a URL, the command defaults to `render`.
 | `mock-record` | Render a URL and record network activity to a HAR file | Full |
 | `mock-replay` | Replay a HAR file as mock routes while rendering a URL | Full |
 | `snapshot` | Capture a DOM snapshot (structure hash + text summary) | Full |
-| `init` | Scaffold a `.dixie/` config directory for a project | Full |
+| `init` | Scaffold a `.dixie/` config directory for a project | Standalone |
 | `a11y` | Accessibility audit (missing alt, labels, ARIA) | Collector |
 | `css-audit` | CSS analysis (unused selectors, specificity) | Collector |
 | `links` | Extract and validate all links on a page | Collector |
@@ -243,6 +243,9 @@ Dixie's DOM is built from scratch — not a wrapper around jsdom or any other im
 - **No layout engine** — `getBoundingClientRect`, `offsetWidth`, `offsetHeight`, `scrollWidth`, and all geometry APIs return zero values. CSS box sizing is not computed.
 - **No painting** — `<canvas>`, WebGL, and SVG rendering are not evaluated.
 - **CSS transitions not applied** — `getComputedStyle` returns inline styles only; cascade, media queries, and computed values are not resolved.
+- **No focus/blur events** — `focus()` and `blur()` are no-ops. They do not dispatch `FocusEvent`, `focusin`, or `focusout` events. Code relying on focus-driven state changes (focus traps, tab navigation) will silently fail.
+- **`scrollIntoView()` is a no-op** — No viewport or scroll state exists. Tab navigation and scroll-to-element logic does nothing.
+- **Observer callbacks never fire** — `ResizeObserver` and `IntersectionObserver` stubs exist (code won't throw) but callbacks are never invoked since there is no layout engine to detect size or visibility changes.
 
 ## Architecture
 

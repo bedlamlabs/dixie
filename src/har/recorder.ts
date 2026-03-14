@@ -92,7 +92,7 @@ export class HarRecorder {
         headers: headersToList(input.responseHeaders),
         content: {
           size: input.responseBody.length,
-          mimeType: 'application/json',
+          mimeType: input.responseHeaders?.['content-type'] ?? 'application/octet-stream',
           text: input.responseBody,
         },
         headersSize: -1,

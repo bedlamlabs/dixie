@@ -26,7 +26,10 @@ export async function runTestFile(filePath: string, context?: { url?: string; co
         target: 'node18',
       });
 
-      const tmpFile = abs.replace(/\.tsx?$/, '.dixie-tmp.mjs');
+      const os = await import('node:os');
+      const crypto = await import('node:crypto');
+      const hash = crypto.createHash('md5').update(abs).digest('hex').slice(0, 8);
+      const tmpFile = path.join(os.tmpdir(), `dixie-${hash}.mjs`);
       fs.writeFileSync(tmpFile, result.code);
 
       try {
@@ -46,7 +49,7 @@ export async function runTestFile(filePath: string, context?: { url?: string; co
           durationMs: Math.round((performance.now() - start) * 100) / 100,
         };
       } finally {
-        fs.unlinkSync(tmpFile);
+        try { fs.unlinkSync(tmpFile); } catch {}
       }
     }
 

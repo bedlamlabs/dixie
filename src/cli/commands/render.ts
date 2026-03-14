@@ -207,7 +207,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       renderMs: Math.round(renderMs * 100) / 100,
       parseMs: Math.round(parseMs * 100) / 100,
       configSource,
-      ...(tokenSource ? { tokenSource, tokenValue } : {}),
+      ...(tokenSource ? { tokenSource } : {}),
       ...(authMeta ? { auth: authMeta } : {}),
     },
     errors,

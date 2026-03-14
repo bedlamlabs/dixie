@@ -22,7 +22,7 @@ export function getAllByLabel(doc: any, labelText: string): any[] {
   const labels = doc.querySelectorAll('label');
   for (const label of labels) {
     const text = (label.textContent ?? '').trim();
-    if (!text.includes(labelText)) continue;
+    if (text !== labelText.trim()) continue;
 
     const forAttr = label.getAttribute('for');
     if (forAttr) {

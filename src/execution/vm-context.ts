@@ -52,7 +52,11 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
   } else {
     const options = envOrOptions as VmContextOptions | undefined;
     env = createDixieEnvironment({ url: options?.url ?? 'http://localhost/' });
-    timeout = options?.timeout ?? 5000;
+    const rawTimeout = options?.timeout ?? 5000;
+    // Guard: reject NaN, Infinity, <= 0, or non-number — fall back to default 5000ms
+    timeout = (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0)
+      ? rawTimeout
+      : 5000;
     harRecorder = options?.harRecorder;
   }
   const win = env.window;
@@ -203,7 +207,10 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     encodeURI: globalThis.encodeURI,
   };
 
-  // window === globalThis === self === sandbox (browser behaviour)
+  // window === globalThis === self === sandbox (browser behaviour).
+  // Intentional: browsers define window.window === window. This circular reference
+  // is required for browser-compat code that accesses window.window or self.self.
+  // env.window is NOT overwritten — it remains the Dixie EventTarget instance.
   sandbox.window = sandbox;
   sandbox.self = sandbox;
   sandbox.globalThis = sandbox;
