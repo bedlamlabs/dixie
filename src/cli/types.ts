@@ -52,6 +52,22 @@ export interface DixieConfig {
      */
     mountSelector?: string;
   };
+  /**
+   * Pre-seed localStorage/sessionStorage before scripts execute.
+   * Used to inject auth tokens so the SPA renders authenticated content.
+   * Keys are storage keys, values are the values to set.
+   */
+  preseed?: {
+    localStorage?: Record<string, string>;
+    sessionStorage?: Record<string, string>;
+  };
+  /**
+   * Error message patterns to suppress in the bundled IIFE.
+   * When a `throw new Error("...")` matches a pattern, it's replaced with
+   * a safe default return. Prevents components without error boundaries
+   * from crashing React's entire tree during re-renders.
+   */
+  suppressErrors?: string[];
   mockRoutes?: Record<string, any>;
   noisePatterns?: string[];
   render?: (url: string, env: any) => any;

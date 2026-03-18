@@ -17,6 +17,8 @@ export interface ScriptLoaderOptions {
    * stop when exceeded. Defaults to 10s from now.
    */
   deadline?: number;
+  /** Error messages to suppress in the bundled IIFE (from DixieConfig.suppressErrors). */
+  suppressErrors?: string[];
 }
 
 export type ScriptError = { code: string; message: string };
@@ -42,6 +44,7 @@ async function bundleToIife(
   entryUrl: string,
   token: string | undefined,
   deadline: number,
+  suppressErrors?: string[],
 ): Promise<string> {
   // Dynamic import so that esbuild is not required for non-SPA pages
   const { build } = await import('esbuild');
@@ -138,16 +141,19 @@ async function bundleToIife(
 
   let code = result.outputFiles?.[0]?.text ?? '';
 
-  // Patch context hooks that throw when called outside their Provider.
-  // React's synchronous re-render during click handlers is FATAL if any
-  // component throws without an error boundary. The Maxwell chat widget
-  // calls useAuth() but renders in a position where the AuthProvider context
-  // is sometimes unavailable (e.g., during error recovery). Replace the throw
-  // with a safe default so the widget renders harmlessly as a no-op.
-  code = code.replace(
-    /throw new Error\("useAuth must be used within an AuthProvider"\)/g,
-    'return{user:null,token:null,isLoading:false,login:()=>Promise.resolve(),register:()=>Promise.resolve(),logout:()=>{}}',
-  );
+  // Suppress specific throw statements from the IIFE. Config-driven: each
+  // pattern in suppressErrors matches a throw new Error("...") message and
+  // replaces it with a safe default return. This prevents components without
+  // error boundaries from crashing React's entire tree during re-renders.
+  if (suppressErrors?.length) {
+    for (const pattern of suppressErrors) {
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      code = code.replace(
+        new RegExp(`throw new Error\\("${escaped}"\\)`, 'g'),
+        'return{}',
+      );
+    }
+  }
 
   return code;
 }
@@ -220,7 +226,7 @@ export async function loadScripts(
         const isModule = type === 'module' || hasEsmSyntax(code);
         if (isModule) {
           try {
-            code = await bundleToIife(code, scriptUrl, token, deadline);
+            code = await bundleToIife(code, scriptUrl, token, deadline, options?.suppressErrors);
           } catch (bundleErr: any) {
             errors.push({
               code: 'SCRIPT_BUNDLE_ERROR',

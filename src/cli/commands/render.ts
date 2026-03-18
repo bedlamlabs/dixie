@@ -199,17 +199,19 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     ctx.document.title = titleMatch[1].trim();
   }
 
-  // Pre-seed auth tokens into VM storage BEFORE React scripts execute.
-  // The SPA reads tokens from localStorage + checks sessionStorage for browser
-  // session marker. Without both, React clears tokens and renders login page.
-  if (token && ctx.sandbox?.localStorage) {
-    ctx.sandbox.localStorage.setItem('thriveos_client_token', token);
-    // Activity timestamp — auth checks inactivity timeout
-    ctx.sandbox.localStorage.setItem('lastActivityTime', Date.now().toString());
+  // Pre-seed storage from config BEFORE scripts execute.
+  // SPAs read auth tokens from localStorage/sessionStorage. Without pre-seeding,
+  // the app sees empty storage and renders the login page.
+  if (config?.preseed?.localStorage && ctx.sandbox?.localStorage) {
+    for (const [key, value] of Object.entries(config.preseed.localStorage)) {
+      // Replace {{token}} placeholder with the acquired auth token
+      ctx.sandbox.localStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
+    }
   }
-  if (token && ctx.sandbox?.sessionStorage) {
-    // Browser session marker — auth clears tokens if this is missing
-    ctx.sandbox.sessionStorage.setItem('browserSessionActive', 'true');
+  if (config?.preseed?.sessionStorage && ctx.sandbox?.sessionStorage) {
+    for (const [key, value] of Object.entries(config.preseed.sessionStorage)) {
+      ctx.sandbox.sessionStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
+    }
   }
 
   // Execute scripts unless --no-js
@@ -240,6 +242,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
         baseUrl: url,
         token,
         deadline: scriptDeadline,
+        suppressErrors: config?.suppressErrors,
       });
       errors.push(...scriptErrors);
 
