@@ -170,6 +170,12 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     // MutationObserver — React uses it to detect disconnected subtrees
     MutationObserver,
 
+    // ── Web Storage ──────────────────────────────────────────────────
+    // Use the environment's storage instances so SPA code that references
+    // localStorage/sessionStorage doesn't crash the VM.
+    localStorage: env.localStorage,
+    sessionStorage: env.sessionStorage,
+
     // ── Structured clone ───────────────────────────────────────────────
     structuredClone: globalThis.structuredClone,
 
@@ -217,6 +223,44 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
   sandbox.top = sandbox;
   sandbox.parent = sandbox;
   sandbox.frames = sandbox;
+
+  // ── DOM constructors from DixieEnvironment ──────────────────────────
+  // createDixieEnvironment() assigns STATIC_GLOBALS to env.window, which includes
+  // Node, Element, all HTML*Element constructors (with Symbol.hasInstance), DOM
+  // observers, and event classes. Install any that aren't already in the sandbox
+  // so that `x instanceof HTMLInputElement` etc. work inside bundled SPA code.
+  const DOM_CONSTRUCTOR_NAMES = [
+    'Node', 'Element', 'Document', 'DocumentFragment', 'Text', 'Comment',
+    'EventTarget', 'DOMParser', 'NodeFilter',
+    'HTMLElement', 'HTMLDivElement', 'HTMLSpanElement', 'HTMLAnchorElement',
+    'HTMLButtonElement', 'HTMLInputElement', 'HTMLTextAreaElement',
+    'HTMLSelectElement', 'HTMLFormElement', 'HTMLIFrameElement',
+    'HTMLImageElement', 'HTMLLabelElement', 'HTMLOptionElement',
+    'HTMLTableElement', 'HTMLTableRowElement', 'HTMLTableCellElement',
+    'HTMLUListElement', 'HTMLOListElement', 'HTMLLIElement',
+    'HTMLParagraphElement', 'HTMLHeadingElement', 'HTMLPreElement',
+    'HTMLCanvasElement', 'HTMLVideoElement', 'HTMLAudioElement',
+    'HTMLSourceElement', 'HTMLScriptElement', 'HTMLStyleElement',
+    'HTMLLinkElement', 'HTMLMetaElement', 'HTMLBodyElement',
+    'HTMLHeadElement', 'HTMLHtmlElement', 'HTMLTemplateElement',
+    'HTMLSlotElement', 'HTMLDialogElement', 'SVGElement',
+    'ResizeObserver', 'IntersectionObserver',
+    'UIEvent', 'PointerEvent',
+  ];
+  for (const name of DOM_CONSTRUCTOR_NAMES) {
+    if (!(name in sandbox) && (win as any)[name]) {
+      sandbox[name] = (win as any)[name];
+    }
+  }
+
+  // ── Layout queries ──────────────────────────────────────────────────
+  // React and CSS-in-JS libraries call getComputedStyle and matchMedia
+  if ((win as any).getComputedStyle) {
+    sandbox.getComputedStyle = (win as any).getComputedStyle.bind(win);
+  }
+  if ((win as any).matchMedia) {
+    sandbox.matchMedia = (win as any).matchMedia.bind(win);
+  }
 
   const context = vm.createContext(sandbox);
 

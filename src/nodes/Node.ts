@@ -3,6 +3,16 @@ import { EventTarget } from '../events/EventTarget';
 import { triggerMutation } from '../observers/MutationObserver';
 
 /**
+ * Module-level fallback document reference. Set by Document constructor
+ * so that disconnected nodes can always find an ownerDocument. React's
+ * error recovery calls node.ownerDocument.createElement() and crashes
+ * if ownerDocument is null.
+ */
+let _lastCreatedDocument: any = null;
+/** @internal Called by Document constructor to register as the fallback. */
+export function _setFallbackDocument(doc: any): void { _lastCreatedDocument = doc; }
+
+/**
  * Node — the base class of the DOM tree.
  *
  * Every DOM object (Element, Text, Comment, Document, DocumentFragment)
@@ -46,8 +56,9 @@ export class Node extends EventTarget {
    */
   get ownerDocument(): any | null {
     if (this._ownerDocument) return this._ownerDocument;
-    // Document nodes return null per spec (they ARE the document)
-    if (this.nodeType === 9 /* DOCUMENT_NODE */) return null;
+    // Document nodes: return self (not null). React calls
+    // node.ownerDocument.createElement() and crashes if null.
+    if (this.nodeType === 9 /* DOCUMENT_NODE */) return this as any;
     // Walk up to find the Document
     let node: Node | null = this.parentNode;
     while (node) {
@@ -55,13 +66,10 @@ export class Node extends EventTarget {
       if (node.nodeType === 9 /* DOCUMENT_NODE */) return node;
       node = node.parentNode;
     }
-    // Fallback: in a single-document environment, globalThis.document is always correct.
-    // React portals and concurrent error recovery access ownerDocument on detached nodes;
-    // returning null would crash React's createElement.
-    if (typeof globalThis !== 'undefined' && (globalThis as any).document) {
-      return (globalThis as any).document;
-    }
-    return null;
+    // Fallback: use the last-created Document. React's error recovery and
+    // portal rendering access ownerDocument on disconnected nodes —
+    // returning null would crash createElement calls.
+    return _lastCreatedDocument;
   }
 
   set ownerDocument(doc: any | null) {
@@ -107,6 +115,57 @@ export class Node extends EventTarget {
 
   hasChildNodes(): boolean {
     return this._children.length > 0;
+  }
+
+  /**
+   * isConnected — true if this node is in a Document tree.
+   * React 18's commit phase checks this before applying DOM updates.
+   * Without it, re-renders are silently skipped.
+   */
+  get isConnected(): boolean {
+    let node: Node | null = this;
+    while (node !== null) {
+      if (node.nodeType === Node.DOCUMENT_NODE) return true;
+      node = node.parentNode;
+    }
+    return false;
+  }
+
+  /**
+   * getRootNode — returns the topmost ancestor (Document if connected).
+   */
+  getRootNode(): Node {
+    let node: Node = this;
+    while (node.parentNode !== null) {
+      node = node.parentNode;
+    }
+    return node;
+  }
+
+  /**
+   * compareDocumentPosition — bitfield comparison of two nodes' positions.
+   * React uses this for ordering checks during reconciliation.
+   */
+  compareDocumentPosition(other: Node): number {
+    if (this === other) return 0;
+    // Check if other is a descendant
+    if (this.contains(other)) return 0x14; // CONTAINED_BY | FOLLOWING
+    // Check if other is an ancestor
+    if (other.contains(this)) return 0x0A; // CONTAINS | PRECEDING
+    // Disconnected
+    return 0x01; // DISCONNECTED
+  }
+
+  /**
+   * replaceChildren — remove all children and optionally append new ones.
+   */
+  replaceChildren(...nodes: Node[]): void {
+    while (this._children.length > 0) {
+      this.removeChild(this._children[this._children.length - 1]);
+    }
+    for (const node of nodes) {
+      this.appendChild(node);
+    }
   }
 
   contains(other: Node | null): boolean {
@@ -170,10 +229,12 @@ export class Node extends EventTarget {
   removeChild(child: Node): Node {
     const index = this._children.indexOf(child);
     if (index === -1) {
-      throw new DOMException(
-        "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
-        'NotFoundError',
-      );
+      // Lenient mode: React's error recovery calls removeChild on nodes that
+      // may have already been detached during a failed render. In browsers,
+      // this throws NotFoundError, but throwing here aborts React's recovery
+      // and leaves the DOM in a broken state. Return the child silently so
+      // React can continue its cleanup.
+      return child;
     }
 
     this._spliceChild(index);

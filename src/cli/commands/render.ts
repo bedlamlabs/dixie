@@ -31,6 +31,8 @@ export interface RenderResult {
     auth?: { status: string; reason?: string };
   };
   errors: Array<{ code: string; message: string }>;
+  /** Flush the event loop so React can settle after interactions (click, type). */
+  flush: (options?: { timeoutMs?: number; stableRounds?: number; waitForSelector?: string }) => Promise<{ stable: boolean; elementCount: number; rounds: number }>;
 }
 
 export async function renderUrl(url: string, options?: RenderOptions): Promise<RenderResult> {
@@ -142,6 +144,42 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   // Create environment and parse HTML
   const ctx = createVmContext({ timeout: options?.timeout ?? 5000, url, harRecorder: options?.harRecorder });
 
+  // Set up API passthrough for SPA pages — forward in-page fetch calls to the
+  // real server so React can authenticate, load data, and render actual content.
+  // Without this, MockFetch returns 404 for all API calls and React renders the
+  // login page instead of the requested route.
+  if (!url.startsWith('data:')) {
+    try {
+      const origin = new URL(url).origin;
+      const passthroughFetch = async (input: any, init?: any) => {
+        const reqUrl = typeof input === 'string' ? input : input?.url ?? String(input);
+        // Resolve relative URLs against the page origin
+        const fullUrl = reqUrl.startsWith('/') ? `${origin}${reqUrl}` : reqUrl;
+        const headers: Record<string, string> = { ...(init?.headers ?? {}) };
+        if (token && !headers['Authorization'] && !headers['authorization']) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const response = await globalThis.fetch(fullUrl, { ...init, headers });
+        const body = await response.text();
+        // Import DixieResponse to return the correct type for MockFetch
+        const { DixieResponse } = await import('../../fetch/Response');
+        const responseHeaders: Record<string, string> = {};
+        response.headers.forEach((v: string, k: string) => { responseHeaders[k] = v; });
+        return new DixieResponse(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+          url: fullUrl,
+        });
+      };
+      // Forward same-origin API calls and relative URLs to the real server
+      ctx.mockFetch.setPassthrough(origin, passthroughFetch);
+      ctx.mockFetch.setPassthrough('/', passthroughFetch);
+    } catch {
+      // URL parsing failed — skip passthrough (non-standard URL)
+    }
+  }
+
   // Parse full HTML document structure
   // Extract head/body content and title from the raw HTML
   const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
@@ -161,6 +199,19 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     ctx.document.title = titleMatch[1].trim();
   }
 
+  // Pre-seed auth tokens into VM storage BEFORE React scripts execute.
+  // The SPA reads tokens from localStorage + checks sessionStorage for browser
+  // session marker. Without both, React clears tokens and renders login page.
+  if (token && ctx.sandbox?.localStorage) {
+    ctx.sandbox.localStorage.setItem('thriveos_client_token', token);
+    // Activity timestamp — auth checks inactivity timeout
+    ctx.sandbox.localStorage.setItem('lastActivityTime', Date.now().toString());
+  }
+  if (token && ctx.sandbox?.sessionStorage) {
+    // Browser session marker — auth clears tokens if this is missing
+    ctx.sandbox.sessionStorage.setItem('browserSessionActive', 'true');
+  }
+
   // Execute scripts unless --no-js
   if (options?.noJs) {
     // Strip script tags from the DOM when JS is disabled
@@ -170,6 +221,20 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     }
   } else {
     const scriptDeadline = Date.now() + (options?.timeout ?? 5000);
+
+    // Capture async errors during script execution and React flush.
+    // React's async scheduler (MessageChannel) throws errors that propagate as
+    // uncaught exceptions (via process.nextTick in Node's EventTarget) AND as
+    // unhandled rejections. Without handlers for BOTH, a React error like
+    // "useAuth must be used within AuthProvider" crashes the Node.js process.
+    const asyncErrors: Array<{ code: string; message: string }> = [];
+    const errorHandler = (err: any) => {
+      const msg = err?.message ?? String(err);
+      asyncErrors.push({ code: 'SCRIPT_ASYNC_ERROR', message: msg });
+    };
+    process.on('unhandledRejection', errorHandler);
+    process.on('uncaughtException', errorHandler);
+
     try {
       const scriptErrors = await loadScripts(ctx, {
         baseUrl: url,
@@ -195,6 +260,15 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       } else {
         errors.push({ code: 'SCRIPT_ERROR', message: err.message });
       }
+    } finally {
+      // Remove error handlers — but keep them for one more event loop turn
+      // to catch deferred React errors from MessageChannel callbacks that fire
+      // after flushReactRender returns.
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+      process.removeListener('unhandledRejection', errorHandler);
+      process.removeListener('uncaughtException', errorHandler);
+      // Collect any async errors that were captured during execution
+      errors.push(...asyncErrors);
     }
   }
 
@@ -211,6 +285,11 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       ...(authMeta ? { auth: authMeta } : {}),
     },
     errors,
+    flush: (opts) => flushReactRender(ctx.document, {
+      timeoutMs: opts?.timeoutMs ?? 3000,
+      stableRounds: opts?.stableRounds ?? 3,
+      waitForSelector: opts?.waitForSelector,
+    }),
   };
 
   return result;

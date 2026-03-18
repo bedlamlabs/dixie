@@ -79,7 +79,15 @@ export async function flushReactRender(
   while (Date.now() < deadline) {
     // Yield to the event loop — this lets MessageChannel callbacks, resolved
     // promises, fetch completions, and effect microtasks all process.
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    // For SPA pages (waitForSelector is set): use setTimeout(100ms) after the
+    // initial setImmediate drain to give real network I/O (passthrough API calls,
+    // code-split chunk fetches) time to complete between stability checks.
+    // For non-SPA pages: use setImmediate for all rounds (fast exit).
+    if (rounds === 0 || !waitForSelector) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } else {
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
     rounds++;
 
     // Fast path: if mutation version is unchanged, DOM hasn't been touched —

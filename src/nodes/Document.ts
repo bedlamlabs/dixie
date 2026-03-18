@@ -1,4 +1,4 @@
-import { Node } from './Node';
+import { Node, _setFallbackDocument } from './Node';
 import { Element } from './Element';
 import { Text } from './Text';
 import { Comment } from './Comment';
@@ -54,6 +54,7 @@ export class Document extends Node {
 
   constructor() {
     super(Node.DOCUMENT_NODE, '#document');
+    _setFallbackDocument(this);
 
     // Auto-create the document skeleton: <html><head></head><body></body></html>
     this._documentElement = new Element('html');

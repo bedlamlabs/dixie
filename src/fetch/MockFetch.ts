@@ -133,6 +133,12 @@ export class MockFetch {
   // ─── Core fetch ──────────────────────────────────────────────────
 
   async fetch(input: string | DixieRequest, init?: DixieRequestInit): Promise<DixieResponse> {
+    // Guard: SPA code may call fetch() with undefined/null (broken dynamic imports,
+    // conditional API calls with unset URLs). Return 400 instead of crashing.
+    if (input == null) {
+      return this._buildResponse({ status: 400, statusText: 'Bad Request', body: null }, '');
+    }
+
     // Fast path: avoid DixieRequest + DixieHeaders creation for string URLs
     const isString = typeof input === 'string';
     const url = isString ? input : input.url;

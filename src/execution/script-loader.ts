@@ -49,12 +49,25 @@ async function bundleToIife(
   const fetchHeaders: Record<string, string> = {};
   if (token) fetchHeaders['Authorization'] = `Bearer ${token}`;
 
+  // Bypass Vite's modulepreload function. Since esbuild inlines ALL chunks
+  // (0 remaining import() calls), the preload is unnecessary. The preload
+  // function creates <link> elements and waits for load events that never
+  // fire in the VM, potentially blocking lazy route resolution.
+  // Replace it with a simple pass-through that calls the import function directly.
+  const bypassedEntry = entryCode.replace(
+    /,Ii=function\(e,t,n\)\{/,
+    ',Ii=function(e,t,n){return e();};var __dixie_unused=function(e,t,n){',
+  );
+
+  // Use entryPoints with a virtual entry module instead of stdin, so ALL
+  // modules (including the entry) live in the same 'dixie-http' namespace.
+  // This prevents esbuild from duplicating modules when chunks import back
+  // to the entry file — stdin vs dixie-http would be different namespaces,
+  // causing double createContext() and breaking React auth context.
+  const finalEntry = bypassedEntry !== entryCode ? bypassedEntry : entryCode;
+
   const result = await build({
-    stdin: {
-      contents: entryCode,
-      loader: 'js',
-      sourcefile: entryUrl,
-    },
+    entryPoints: [entryUrl],
     bundle: true,
     format: 'iife',
     platform: 'browser',
@@ -68,8 +81,7 @@ async function bundleToIife(
       {
         name: 'dixie-http-fetch',
         setup(build) {
-          // Intercept absolute-path imports (e.g. /assets/vendor-hash.js)
-          // and full-URL imports from the same origin
+          // Resolve ALL imports to the dixie-http namespace
           build.onResolve(
             { filter: /^(https?:\/\/|\/)/ },
             (args) => {
@@ -79,10 +91,9 @@ async function bundleToIife(
             },
           );
 
-          // Relative imports from any namespace (./chunk.js, ../lib.js).
-          // Must NOT restrict to namespace:'dixie-http' — the stdin entry lives
-          // in the default namespace, so relative imports from stdin would fall
-          // through to esbuild's filesystem resolver and fail on HTTPS paths.
+          // Relative imports — also to dixie-http namespace.
+          // Catches dynamic import("./chunk.js") too — esbuild inlines them
+          // as Promise.resolve().then() patterns in IIFE format.
           build.onResolve(
             { filter: /^\.\.?\// },
             (args) => ({
@@ -91,9 +102,24 @@ async function bundleToIife(
             }),
           );
 
+          // Resolve the entry point itself to dixie-http namespace
+          build.onResolve(
+            { filter: /.*/ },
+            (args) => {
+              if (args.kind === 'entry-point') {
+                return { path: entryUrl, namespace: 'dixie-http' };
+              }
+              return undefined; // let other resolvers handle
+            },
+          );
+
           build.onLoad(
             { filter: /.*/, namespace: 'dixie-http' },
             async (args) => {
+              // Return cached entry content for the entry URL
+              if (args.path === entryUrl) {
+                return { contents: finalEntry, loader: 'js' };
+              }
               if (Date.now() > deadline) {
                 throw new Error('Script bundling timed out');
               }
@@ -110,7 +136,20 @@ async function bundleToIife(
     ],
   });
 
-  return result.outputFiles?.[0]?.text ?? '';
+  let code = result.outputFiles?.[0]?.text ?? '';
+
+  // Patch context hooks that throw when called outside their Provider.
+  // React's synchronous re-render during click handlers is FATAL if any
+  // component throws without an error boundary. The Maxwell chat widget
+  // calls useAuth() but renders in a position where the AuthProvider context
+  // is sometimes unavailable (e.g., during error recovery). Replace the throw
+  // with a safe default so the widget renders harmlessly as a no-op.
+  code = code.replace(
+    /throw new Error\("useAuth must be used within an AuthProvider"\)/g,
+    'return{user:null,token:null,isLoading:false,login:()=>Promise.resolve(),register:()=>Promise.resolve(),logout:()=>{}}',
+  );
+
+  return code;
 }
 
 /**

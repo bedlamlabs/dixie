@@ -4,6 +4,8 @@ export interface ParsedArgs {
   selector?: string;
   /** Text content to search for within the rendered DOM */
   text?: string;
+  /** CSS selector of element to click before querying (opens slideouts, etc.) */
+  click?: string;
   file?: string;
   format: 'json' | 'yaml' | 'markdown' | 'csv';
   token?: string;
