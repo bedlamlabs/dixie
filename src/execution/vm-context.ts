@@ -11,6 +11,84 @@ import { InputEvent } from '../events/InputEvent';
 import { FocusEvent } from '../events/FocusEvent';
 import { MutationObserver } from '../observers/MutationObserver';
 
+/**
+ * Minimal FileReader shim — Node.js does not expose FileReader as a global.
+ * Supports readAsText, readAsArrayBuffer, readAsDataURL with async Blob methods.
+ */
+class FileReaderShim {
+  static readonly EMPTY = 0;
+  static readonly LOADING = 1;
+  static readonly DONE = 2;
+  readonly EMPTY = 0;
+  readonly LOADING = 1;
+  readonly DONE = 2;
+  readyState = 0;
+  result: string | ArrayBuffer | null = null;
+  error: any = null;
+  onload: ((ev: any) => void) | null = null;
+  onerror: ((ev: any) => void) | null = null;
+  onloadend: ((ev: any) => void) | null = null;
+  onabort: ((ev: any) => void) | null = null;
+  onloadstart: ((ev: any) => void) | null = null;
+  onprogress: ((ev: any) => void) | null = null;
+
+  readAsText(blob: Blob) { this._read(blob, 'text'); }
+  readAsArrayBuffer(blob: Blob) { this._read(blob, 'arraybuffer'); }
+  readAsDataURL(blob: Blob) { this._read(blob, 'dataurl'); }
+  abort() { /* no-op for VM shim */ }
+
+  private async _read(blob: Blob, type: 'text' | 'arraybuffer' | 'dataurl') {
+    this.readyState = 1;
+    try {
+      if (type === 'text') {
+        this.result = await blob.text();
+      } else if (type === 'arraybuffer') {
+        this.result = await blob.arrayBuffer();
+      } else {
+        const buf = await blob.arrayBuffer();
+        this.result = 'data:' + (blob.type || 'application/octet-stream') + ';base64,' +
+          Buffer.from(buf).toString('base64');
+      }
+      this.readyState = 2;
+      if (this.onload) this.onload({ target: this });
+    } catch (e) {
+      this.error = e;
+      if (this.onerror) this.onerror({ target: this });
+    }
+    if (this.onloadend) this.onloadend({ target: this });
+  }
+}
+
+/**
+ * No-op XMLHttpRequest shim — some third-party scripts (Google Sign-In, analytics)
+ * fall back to XHR when fetch is unavailable or for legacy compat. This shim prevents
+ * "XMLHttpRequest is not defined" crashes without making real network calls.
+ */
+class XMLHttpRequestShim {
+  static readonly UNSENT = 0;
+  static readonly OPENED = 1;
+  static readonly HEADERS_RECEIVED = 2;
+  static readonly LOADING = 3;
+  static readonly DONE = 4;
+  readyState = 0;
+  status = 0;
+  statusText = '';
+  responseText = '';
+  response = '';
+  responseType = '';
+  onload: ((ev: any) => void) | null = null;
+  onerror: ((ev: any) => void) | null = null;
+  onreadystatechange: ((ev: any) => void) | null = null;
+  open() { this.readyState = 1; }
+  send() { this.readyState = 4; this.status = 0; }
+  setRequestHeader() {}
+  getResponseHeader() { return null; }
+  getAllResponseHeaders() { return ''; }
+  abort() {}
+  addEventListener() {}
+  removeEventListener() {}
+}
+
 export interface VmContextOptions {
   timeout?: number;
   url?: string;
@@ -211,6 +289,22 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     encodeURIComponent: globalThis.encodeURIComponent,
     decodeURI: globalThis.decodeURI,
     encodeURI: globalThis.encodeURI,
+
+    // ── Binary / File APIs ───────────────────────────────────────────
+    // Required by SPA code that creates blobs (email preview, file uploads),
+    // Maxwell widget (localStorage + Blob), and automations page.
+    Blob: globalThis.Blob,
+    File: globalThis.File,
+    FormData: globalThis.FormData,
+    FileReader: FileReaderShim,
+
+    // ── Base64 encoding ──────────────────────────────────────────────
+    btoa: globalThis.btoa,
+    atob: globalThis.atob,
+
+    // ── Legacy networking ────────────────────────────────────────────
+    // Third-party scripts (Google Sign-In, analytics) may reference XHR
+    XMLHttpRequest: XMLHttpRequestShim,
   };
 
   // window === globalThis === self === sandbox (browser behaviour).
