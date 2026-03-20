@@ -66,8 +66,25 @@ export class MockFetch {
   /** Cache: body config identity → pre-stringified JSON */
   private _bodyCache: WeakMap<object, string> = new WeakMap();
 
+  /** Track in-flight passthrough requests so the flush can wait for them */
+  private _inFlightCount = 0;
+
   constructor(options?: { maxRecordedRequests?: number }) {
     this._maxRecordedRequests = options?.maxRecordedRequests ?? 10000;
+  }
+
+  /** Number of passthrough requests currently in-flight */
+  get inFlightCount(): number {
+    return this._inFlightCount;
+  }
+
+  /** Returns a promise that resolves when all in-flight requests complete */
+  async waitForIdle(timeoutMs = 5000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this._inFlightCount > 0 && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    return this._inFlightCount === 0;
   }
 
   // ─── Response registry ───────────────────────────────────────────
@@ -178,7 +195,12 @@ export class MockFetch {
     if (this._passthroughMap.size > 0) {
       const ptMatch = this._findLongestMatchSorted(url, this._getPassthroughSorted());
       if (ptMatch !== null) {
-        return ptMatch(input, init);
+        this._inFlightCount++;
+        try {
+          return await ptMatch(input, init);
+        } finally {
+          this._inFlightCount--;
+        }
       }
     }
 

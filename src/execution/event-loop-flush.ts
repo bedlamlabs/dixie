@@ -51,6 +51,12 @@ export interface FlushOptions {
    * Useful for: waitForSelector('#root > *') to confirm React mounted.
    */
   waitForSelector?: string;
+  /**
+   * MockFetch instance to check for in-flight passthrough requests.
+   * When set, DOM is not considered stable while requests are in-flight.
+   * This prevents the flush from completing before API data has loaded.
+   */
+  mockFetch?: { inFlightCount: number };
 }
 
 /**
@@ -103,6 +109,13 @@ export async function flushReactRender(
 
     if (count === lastCount) {
       stableCount++;
+
+      // If passthrough requests are still in-flight, don't declare stable yet.
+      // API data hasn't arrived — the DOM will change when responses come back.
+      if (options?.mockFetch && options.mockFetch.inFlightCount > 0) {
+        stableCount = 0;
+        continue;
+      }
 
       // If a selector target is required, only count as stable when found
       if (waitForSelector) {

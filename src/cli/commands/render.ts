@@ -256,6 +256,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
         timeoutMs: flushBudget,
         stableRounds: 3,
         waitForSelector: mountSelector,
+        mockFetch: ctx.mockFetch,
       });
     } catch (err: any) {
       if (err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || /timed out|timeout/i.test(err.message)) {
@@ -292,6 +293,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       timeoutMs: opts?.timeoutMs ?? 3000,
       stableRounds: opts?.stableRounds ?? 3,
       waitForSelector: opts?.waitForSelector,
+      mockFetch: ctx.mockFetch,
     }),
   };
 

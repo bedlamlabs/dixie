@@ -75,36 +75,18 @@ export class TokenAcquisition {
 
     const timeout = this._config.timeout ?? 5000;
 
+    // Acquire user token — this is the critical path
+    let userToken: string | null = null;
     try {
-      // Acquire user token
-      const userToken = await this._fetchToken(
+      userToken = await this._fetchToken(
         this._config.baseUrl + this._config.loginEndpoint,
         this._config.credentials,
         timeout,
       );
-
-      // Acquire admin token (if configured)
-      let adminToken: string | null = null;
-      if (this._config.adminCredentials && this._config.adminLoginEndpoint) {
-        adminToken = await this._fetchToken(
-          this._config.baseUrl + this._config.adminLoginEndpoint,
-          this._config.adminCredentials,
-          timeout,
-        );
-      }
-
-      const result: TokenResult = {
-        userToken,
-        adminToken,
-        source: 'live',
-      };
-      this._cached = result;
-      return result;
-
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
 
-      // Graceful degradation: return mock tokens
+      // User login failed — graceful degradation to mock tokens
       const result: TokenResult = {
         userToken: TokenAcquisition.generateMockToken({ email: this._config.credentials.email, role: 'user', mock: true }),
         adminToken: this._config.adminCredentials
@@ -116,6 +98,31 @@ export class TokenAcquisition {
       this._cached = result;
       return result;
     }
+
+    // Acquire admin token (if configured) — failure is non-fatal
+    // Admin login may fail if the test account doesn't have admin access.
+    // The user token is still valid and sufficient for rendering client pages.
+    let adminToken: string | null = null;
+    if (this._config.adminCredentials && this._config.adminLoginEndpoint) {
+      try {
+        adminToken = await this._fetchToken(
+          this._config.baseUrl + this._config.adminLoginEndpoint,
+          this._config.adminCredentials,
+          timeout,
+        );
+      } catch {
+        // Admin login failed — continue with user token only
+        adminToken = null;
+      }
+    }
+
+    const result: TokenResult = {
+      userToken,
+      adminToken,
+      source: 'live',
+    };
+    this._cached = result;
+    return result;
   }
 
   /**
