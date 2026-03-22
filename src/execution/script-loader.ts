@@ -33,6 +33,42 @@ function hasEsmSyntax(code: string): boolean {
 }
 
 /**
+ * Vite dev server scripts that should be skipped during rendering.
+ * These are HMR/Fast-Refresh infrastructure — not needed for testing.
+ */
+const VITE_DEV_SKIP_PATTERNS = [
+  /^\/@vite\//,         // /@vite/client — HMR WebSocket client
+  /^\/@react-refresh/,  // React Fast Refresh runtime
+];
+
+function isViteDevScript(src: string): boolean {
+  return VITE_DEV_SKIP_PATTERNS.some(p => p.test(src));
+}
+
+function isViteDevInlineScript(code: string): boolean {
+  return code.includes('/@react-refresh') || code.includes('__vite_plugin_react_preamble_installed__');
+}
+
+/**
+ * Strip Vite dev server HMR wrapper code from a module's source.
+ * Every file served by Vite dev gets import.meta.hot injections at the top
+ * and HMR accept/refresh calls at the bottom. These reference import.meta
+ * which doesn't work in IIFE format. Strip them before esbuild bundles.
+ */
+function stripViteHmr(code: string): string {
+  // Replace import.meta.hot with a banner-defined stub variable.
+  // This handles ALL patterns: assignments, method calls, and conditionals.
+  code = code.replace(/import\.meta\.hot/g, '__vite_import_meta_hot__');
+  // Replace import.meta.env with the banner-defined env object
+  code = code.replace(/import\.meta\.env/g, '__vite_import_meta_env__');
+  // Replace import.meta.url with a placeholder string
+  code = code.replace(/import\.meta\.url/g, '"about:blank"');
+  // Catch any remaining import.meta references
+  code = code.replace(/import\.meta/g, '({})');
+  return code;
+}
+
+/**
  * Bundle ESM code + all its imported chunks into a single IIFE string,
  * fetching each imported module from the server using the same auth token.
  *
@@ -80,15 +116,31 @@ async function bundleToIife(
     define: {
       'process.env.NODE_ENV': '"production"',
     },
+    // Inject a no-op import.meta.hot stub and import.meta.env at the top of the IIFE.
+    // Vite dev server injects import.meta.hot = createHotContext(...) and
+    // import.meta.hot.accept(...) into every file. In IIFE format, esbuild replaces
+    // import.meta with an object, but the HMR calls still execute. The banner
+    // provides a safe stub so these calls are no-ops instead of runtime errors.
+    banner: {
+      js: `var __vite_import_meta_hot__ = {accept(){},dispose(){},prune(){},invalidate(){},on(){},off(){},data:{}};
+var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"/",SSR:false};`,
+    },
     plugins: [
       {
         name: 'dixie-http-fetch',
         setup(build) {
+          // Resolve Vite dev virtual paths to empty modules (not needed for rendering)
+          build.onResolve(
+            { filter: /^\/@react-refresh|^\/@vite\// },
+            () => ({ path: 'vite-dev-noop', namespace: 'dixie-noop' }),
+          );
+
           // Resolve ALL imports to the dixie-http namespace
           build.onResolve(
             { filter: /^(https?:\/\/|\/)/ },
             (args) => {
               const base = args.importer?.startsWith('http') ? args.importer : entryUrl;
+              // Vite virtual paths like /@fs/... and /@id/... resolve against the server
               const resolved = new URL(args.path, base).toString();
               return { path: resolved, namespace: 'dixie-http' };
             },
@@ -116,12 +168,34 @@ async function bundleToIife(
             },
           );
 
+          // Return stub modules for Vite dev infrastructure imports.
+          // Every Vite-served file imports createHotContext from /@vite/client
+          // and RefreshRuntime from /@react-refresh. Provide no-op stubs so
+          // esbuild can bundle without errors.
+          build.onLoad(
+            { filter: /.*/, namespace: 'dixie-noop' },
+            () => ({
+              contents: `
+                export function createHotContext() { return { accept(){}, dispose(){}, prune(){}, invalidate(){}, on(){}, off(){}, data:{} }; }
+                export function updateStyle() {}
+                export function removeStyle() {}
+                export function injectIntoGlobalHook() {}
+                export function createSignatureFunctionForTransform() { return function(type) { return type; }; }
+                export function isLikelyComponentType() { return false; }
+                export function getFamilyByType() { return undefined; }
+                export function register() {}
+                export default {};
+              `,
+              loader: 'js',
+            }),
+          );
+
           build.onLoad(
             { filter: /.*/, namespace: 'dixie-http' },
             async (args) => {
               // Return cached entry content for the entry URL
               if (args.path === entryUrl) {
-                return { contents: finalEntry, loader: 'js' };
+                return { contents: stripViteHmr(finalEntry), loader: 'js' };
               }
               if (Date.now() > deadline) {
                 throw new Error('Script bundling timed out');
@@ -130,7 +204,9 @@ async function bundleToIife(
               if (!response.ok) {
                 throw new Error(`HTTP ${response.status} fetching ${args.path}`);
               }
-              const contents = await response.text();
+              let contents = await response.text();
+              // Strip Vite dev server HMR wrappers from each module
+              contents = stripViteHmr(contents);
               return { contents, loader: 'js' };
             },
           );
@@ -140,6 +216,14 @@ async function bundleToIife(
   });
 
   let code = result.outputFiles?.[0]?.text ?? '';
+
+  // Neutralize Vite dev server preamble check in the bundled output.
+  // The Vite React plugin wraps every component with a check for
+  // __vite_plugin_react_preamble_installed__. Replace the throw with void 0.
+  code = code.replace(
+    /throw\s+new\s+Error\(\s*["']@vitejs\/plugin-react can't detect preamble\.[^"']*["']\s*\)/g,
+    'void 0',
+  );
 
   // Suppress specific throw statements from the IIFE. Config-driven: each
   // pattern in suppressErrors matches a throw new Error("...") message and
@@ -179,6 +263,15 @@ export async function loadScripts(
   const deadline = options?.deadline ?? Date.now() + 10_000;
   const errors: ScriptError[] = [];
 
+  // Pre-set Vite dev server globals. When running against a Vite dev server:
+  // 1. __vite_plugin_react_preamble_installed__ — React plugin preamble check
+  // 2. $RefreshReg$ / $RefreshSig$ — React Fast Refresh registration (no-ops)
+  ctx.executeScript(`try {
+    window.__vite_plugin_react_preamble_installed__ = true;
+    window.$RefreshReg$ = function() {};
+    window.$RefreshSig$ = function() { return function(type) { return type; }; };
+  } catch(e) {}`);
+
   for (const script of scripts) {
     if (Date.now() > deadline) {
       errors.push({ code: 'SCRIPT_TIMEOUT', message: 'Script loading deadline exceeded' });
@@ -194,6 +287,11 @@ export async function loadScripts(
 
     const src = script.getAttribute('src');
     if (src) {
+      // ── Skip Vite dev server infrastructure scripts ─────────────────
+      if (isViteDevScript(src)) {
+        continue;
+      }
+
       // ── External script — fetch, optionally bundle, then execute ────
       try {
         const scriptUrl = new URL(src, baseUrl).toString();
@@ -249,7 +347,33 @@ export async function loadScripts(
     } else {
       // ── Inline script ───────────────────────────────────────────────
       const code = script.textContent ?? '';
-      if (code.trim()) {
+      if (!code.trim()) continue;
+
+      // Skip Vite dev server inline scripts (React Fast Refresh preamble, etc.)
+      if (isViteDevInlineScript(code)) {
+        continue;
+      }
+
+      // Inline ESM needs bundling too (Vite dev serves inline type="module" scripts)
+      const isModule = type === 'module' || hasEsmSyntax(code);
+      if (isModule) {
+        try {
+          // Create a virtual URL for the inline script so esbuild can resolve relative imports
+          const virtualUrl = new URL('/__dixie_inline_module__.js', baseUrl).toString();
+          const bundled = await bundleToIife(code, virtualUrl, token, deadline, options?.suppressErrors);
+          if (bundled.trim()) {
+            const result = ctx.executeScript(bundled);
+            if (result.error) {
+              errors.push({ code: 'SCRIPT_EXEC_ERROR', message: `inline script: ${result.error}` });
+            }
+          }
+        } catch (bundleErr: any) {
+          errors.push({
+            code: 'SCRIPT_BUNDLE_ERROR',
+            message: `Failed to bundle inline script: ${bundleErr.message}`,
+          });
+        }
+      } else {
         const result = ctx.executeScript(code);
         if (result.error) {
           errors.push({ code: 'SCRIPT_EXEC_ERROR', message: `inline script: ${result.error}` });

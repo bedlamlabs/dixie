@@ -15,6 +15,8 @@ export interface ParsedArgs {
   verbose: boolean;
   bail: boolean;
   filter?: string;
+  /** Category filter for the meta command (e.g., 'status', 'amount', 'date') */
+  type?: string;
   noColor: boolean;
   config?: string;
   selectorStrategy: 'css' | 'testId' | 'role' | 'label';
@@ -71,5 +73,14 @@ export interface DixieConfig {
   mockRoutes?: Record<string, any>;
   noisePatterns?: string[];
   render?: (url: string, env: any) => any;
+  /**
+   * Metadata extraction configuration.
+   * When enabled, the `meta` command collects all elements with data-meta attributes.
+   * The contract file maps semantic metadata keys to their expected pages and components.
+   */
+  metadata?: {
+    enabled: boolean;
+    contract: string;
+  };
   [key: string]: any;
 }

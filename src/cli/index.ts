@@ -4,7 +4,7 @@ const COMMANDS = new Set([
   'render', 'query', 'run', 'bench', 'diff', 'a11y', 'css-audit',
   'links', 'forms', 'text', 'structure', 'api', 'expected-calls',
   'click', 'type', 'select', 'inspect', 'init', 'component',
-  'fidelity', 'lighthouse', 'har', 'redact',
+  'fidelity', 'lighthouse', 'har', 'redact', 'meta',
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -69,6 +69,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       args.text = argv[++i];
     } else if (arg === '--click' && i + 1 < argv.length) {
       args.click = argv[++i];
+    } else if (arg === '--type' && i + 1 < argv.length) {
+      args.type = argv[++i];
     } else if (arg === '--no-js') {
       args.noJs = true;
     } else if (arg === '--parallel') {
