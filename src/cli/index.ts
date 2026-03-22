@@ -71,6 +71,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
       args.click = argv[++i];
     } else if (arg === '--type' && i + 1 < argv.length) {
       args.type = argv[++i];
+    } else if (arg === '--key' && i + 1 < argv.length) {
+      args.key = argv[++i];
+    } else if (arg === '--validate') {
+      args.validate = true;
     } else if (arg === '--no-js') {
       args.noJs = true;
     } else if (arg === '--parallel') {

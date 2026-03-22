@@ -176,14 +176,20 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
             { filter: /.*/, namespace: 'dixie-noop' },
             () => ({
               contents: `
+                // /@vite/client stubs
                 export function createHotContext() { return { accept(){}, dispose(){}, prune(){}, invalidate(){}, on(){}, off(){}, data:{} }; }
                 export function updateStyle() {}
                 export function removeStyle() {}
+                // /@react-refresh stubs
                 export function injectIntoGlobalHook() {}
                 export function createSignatureFunctionForTransform() { return function(type) { return type; }; }
                 export function isLikelyComponentType() { return false; }
                 export function getFamilyByType() { return undefined; }
                 export function register() {}
+                export function getRefreshReg() { return function() {}; }
+                export function __hmr_import() { return Promise.resolve({}); }
+                export function registerExportsForReactRefresh() {}
+                export function validateRefreshBoundaryAndEnqueueUpdate() { return undefined; }
                 export default {};
               `,
               loader: 'js',

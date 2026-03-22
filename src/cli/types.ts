@@ -17,6 +17,10 @@ export interface ParsedArgs {
   filter?: string;
   /** Category filter for the meta command (e.g., 'status', 'amount', 'date') */
   type?: string;
+  /** Contract key for the meta command (e.g., 'status:e-sign-ready') */
+  key?: string;
+  /** Validate all expected metadata keys for the current page route against the contract */
+  validate?: boolean;
   noColor: boolean;
   config?: string;
   selectorStrategy: 'css' | 'testId' | 'role' | 'label';
