@@ -6,6 +6,7 @@ import { parseHTML } from '../../index';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import yaml from 'js-yaml';
+import { resolveConfig } from '../config-loader';
 const parseYaml = yaml.load;
 
 export interface MetadataEntry {
@@ -158,6 +159,15 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
     };
   }
 
+  // Resolve config to get metadata.contract path
+  let contractConfigPath: string | undefined;
+  try {
+    const config = await resolveConfig(args.url, process.cwd(), args.config);
+    contractConfigPath = config?.metadata?.contract;
+  } catch {
+    // Config resolution failure is non-fatal for meta command
+  }
+
   try {
     const result = await renderUrl(args.url, {
       token: args.token,
@@ -191,7 +201,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
 
     // ── --key mode: contract-validated exact lookup ──────────────────
     if (args.key) {
-      const contract = loadContract();
+      const contract = loadContract(contractConfigPath);
       const parsed = parseMeta(args.key);
 
       if (!parsed) {
@@ -257,7 +267,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
 
     // ── --validate mode: check all expected keys for this route ──────
     if (args.validate) {
-      const contract = loadContract();
+      const contract = loadContract(contractConfigPath);
       if (!contract) {
         return {
           exitCode: 1,
