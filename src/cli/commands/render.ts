@@ -60,7 +60,6 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
 
   // Determine token
   let token: string | undefined = options?.token;
-  let adminToken: string | undefined;
   let tokenSource: string | undefined;
   let tokenValue: string | undefined;
   let authMeta: { status: string; reason?: string } | undefined;
@@ -80,10 +79,6 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       } else if (result.source === 'mock' && result.error) {
         // Auth server unreachable — continue without auth
         authMeta = { status: 'failed', reason: result.error };
-      }
-      // Capture admin token for admin page rendering
-      if (result.adminToken) {
-        adminToken = result.adminToken;
       }
     } catch (err: any) {
       // Auth module error — continue without auth
@@ -209,19 +204,13 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   // the app sees empty storage and renders the login page.
   if (config?.preseed?.localStorage && ctx.sandbox?.localStorage) {
     for (const [key, value] of Object.entries(config.preseed.localStorage)) {
-      // Replace {{token}} and {{adminToken}} placeholders with acquired auth tokens
-      const resolved = value === '{{token}}' ? (token ?? '')
-        : value === '{{adminToken}}' ? (adminToken ?? '')
-        : value;
-      ctx.sandbox.localStorage.setItem(key, resolved);
+      // Replace {{token}} placeholder with the acquired auth token
+      ctx.sandbox.localStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
     }
   }
   if (config?.preseed?.sessionStorage && ctx.sandbox?.sessionStorage) {
     for (const [key, value] of Object.entries(config.preseed.sessionStorage)) {
-      const resolved = value === '{{token}}' ? (token ?? '')
-        : value === '{{adminToken}}' ? (adminToken ?? '')
-        : value;
-      ctx.sandbox.sessionStorage.setItem(key, resolved);
+      ctx.sandbox.sessionStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
     }
   }
 
