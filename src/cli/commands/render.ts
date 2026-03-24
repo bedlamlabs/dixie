@@ -60,6 +60,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
 
   // Determine token
   let token: string | undefined = options?.token;
+  let adminToken: string | undefined;
   let tokenSource: string | undefined;
   let tokenValue: string | undefined;
   let authMeta: { status: string; reason?: string } | undefined;
@@ -67,6 +68,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   if (token) {
     tokenSource = 'provided';
     tokenValue = token;
+    adminToken = token; // When a token is explicitly provided, use it for admin too
   } else if (config?.auth) {
     // Try to acquire token from config auth
     try {
@@ -76,7 +78,11 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       if (result.userToken && result.source === 'live') {
         token = result.userToken;
         tokenSource = 'config';
-      } else if (result.source === 'mock' && result.error) {
+      }
+      if (result.adminToken) {
+        adminToken = result.adminToken;
+      }
+      if (result.source === 'mock' && result.error) {
         // Auth server unreachable — continue without auth
         authMeta = { status: 'failed', reason: result.error };
       }
@@ -155,11 +161,19 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
         const reqUrl = typeof input === 'string' ? input : input?.url ?? String(input);
         // Resolve relative URLs against the page origin
         const fullUrl = reqUrl.startsWith('/') ? `${origin}${reqUrl}` : reqUrl;
-        const headers: Record<string, string> = { ...(init?.headers ?? {}) };
+        // Handle both plain objects and Headers instances (spreading Headers yields {})
+        const rawHeaders = init?.headers ?? {};
+        const headers: Record<string, string> = {};
+        if (rawHeaders && typeof rawHeaders === 'object' && typeof rawHeaders.forEach === 'function') {
+          // Headers instance — iterate entries
+          rawHeaders.forEach((v: string, k: string) => { headers[k] = v; });
+        } else {
+          Object.assign(headers, rawHeaders);
+        }
         if (token && !headers['Authorization'] && !headers['authorization']) {
           headers['Authorization'] = `Bearer ${token}`;
         }
-        const response = await globalThis.fetch(fullUrl, { ...init, headers });
+const response = await globalThis.fetch(fullUrl, { ...init, headers });
         const body = await response.text();
         // Import DixieResponse to return the correct type for MockFetch
         const { DixieResponse } = await import('../../fetch/Response');
@@ -204,13 +218,19 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   // the app sees empty storage and renders the login page.
   if (config?.preseed?.localStorage && ctx.sandbox?.localStorage) {
     for (const [key, value] of Object.entries(config.preseed.localStorage)) {
-      // Replace {{token}} placeholder with the acquired auth token
-      ctx.sandbox.localStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
+      // Replace {{token}} and {{adminToken}} placeholders with acquired auth tokens
+      const resolved = value === '{{token}}' ? (token ?? '')
+        : value === '{{adminToken}}' ? (adminToken ?? '')
+        : value;
+      ctx.sandbox.localStorage.setItem(key, resolved);
     }
   }
   if (config?.preseed?.sessionStorage && ctx.sandbox?.sessionStorage) {
     for (const [key, value] of Object.entries(config.preseed.sessionStorage)) {
-      ctx.sandbox.sessionStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
+      const resolved = value === '{{token}}' ? (token ?? '')
+        : value === '{{adminToken}}' ? (adminToken ?? '')
+        : value;
+      ctx.sandbox.sessionStorage.setItem(key, resolved);
     }
   }
 
