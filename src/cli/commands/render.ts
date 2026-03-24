@@ -74,8 +74,15 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       const ta = new TokenAcquisition(config.auth);
       const result = await ta.acquire();
       if (result.userToken && result.source === 'live') {
-        token = result.userToken;
-        tokenSource = 'config';
+        // Use admin token for /app/admin/ routes, user token otherwise
+        const isAdminRoute = url.includes('/app/admin/') || url.includes('/admin/');
+        if (isAdminRoute && result.adminToken) {
+          token = result.adminToken;
+          tokenSource = 'config';
+        } else {
+          token = result.userToken;
+          tokenSource = 'config';
+        }
       } else if (result.source === 'mock' && result.error) {
         // Auth server unreachable — continue without auth
         authMeta = { status: 'failed', reason: result.error };
