@@ -23,6 +23,72 @@ export interface ScriptLoaderOptions {
 
 export type ScriptError = { code: string; message: string };
 
+export interface DevServerAdapter {
+  matches(src: string): boolean;
+  transformSource(code: string): string;
+  skipPatterns(): RegExp[];
+  bannerCode(): string;
+  transformBundle(code: string): string;
+  name(): string;
+}
+
+export class ViteDevServerAdapter implements DevServerAdapter {
+  name(): string {
+    return 'Vite';
+  }
+
+  matches(src: string): boolean {
+    return /^\/@vite\//.test(src) || /^\/@react-refresh/.test(src);
+  }
+
+  transformSource(code: string): string {
+    // Replace import.meta.hot with a banner-defined stub variable.
+    // This handles ALL patterns: assignments, method calls, and conditionals.
+    code = code.replace(/import\.meta\.hot/g, '__vite_import_meta_hot__');
+    // Replace import.meta.env with the banner-defined env object
+    code = code.replace(/import\.meta\.env/g, '__vite_import_meta_env__');
+    // Replace import.meta.url with a placeholder string
+    code = code.replace(/import\.meta\.url/g, '"about:blank"');
+    // Catch any remaining import.meta references
+    code = code.replace(/import\.meta/g, '({})');
+    return code;
+  }
+
+  skipPatterns(): RegExp[] {
+    return [
+      /^\/@vite\//,         // /@vite/client — HMR WebSocket client
+      /^\/@react-refresh/,  // React Fast Refresh runtime
+    ];
+  }
+
+  bannerCode(): string {
+    return `var __vite_import_meta_hot__ = {accept(){},dispose(){},prune(){},invalidate(){},on(){},off(){},data:{}};
+var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"/",SSR:false};`;
+  }
+
+  transformBundle(code: string): string {
+    // Neutralize Vite dev server preamble check in the bundled output.
+    // The Vite React plugin wraps every component with a check for
+    // __vite_plugin_react_preamble_installed__. Replace the throw with void 0.
+    return code.replace(
+      /throw\s+new\s+Error\(\s*["']@vitejs\/plugin-react can't detect preamble\.[^"']*["']\s*\)/g,
+      'void 0',
+    );
+  }
+}
+
+export function detectDevServer(html: string): DevServerAdapter | null {
+  // Check if HTML contains Vite dev server markers
+  if (
+    html.includes('/@vite/') ||
+    html.includes('/@react-refresh') ||
+    html.includes('__vite_plugin_react_preamble_installed__')
+  ) {
+    return new ViteDevServerAdapter();
+  }
+  return null;
+}
+
 /**
  * Detect top-level ESM syntax (import/export at line start).
  * Vite production bundles use static import/export and cannot run in
@@ -81,6 +147,7 @@ async function bundleToIife(
   token: string | undefined,
   deadline: number,
   suppressErrors?: string[],
+  adapter?: DevServerAdapter | null,
 ): Promise<string> {
   // Dynamic import so that esbuild is not required for non-SPA pages
   const { build } = await import('esbuild');
@@ -105,6 +172,11 @@ async function bundleToIife(
   // causing double createContext() and breaking React auth context.
   const finalEntry = bypassedEntry !== entryCode ? bypassedEntry : entryCode;
 
+  const bannerJs = adapter
+    ? adapter.bannerCode()
+    : `var __vite_import_meta_hot__ = {accept(){},dispose(){},prune(){},invalidate(){},on(){},off(){},data:{}};
+var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"/",SSR:false};`;
+
   const result = await build({
     entryPoints: [entryUrl],
     bundle: true,
@@ -122,8 +194,7 @@ async function bundleToIife(
     // import.meta with an object, but the HMR calls still execute. The banner
     // provides a safe stub so these calls are no-ops instead of runtime errors.
     banner: {
-      js: `var __vite_import_meta_hot__ = {accept(){},dispose(){},prune(){},invalidate(){},on(){},off(){},data:{}};
-var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"/",SSR:false};`,
+      js: bannerJs,
     },
     plugins: [
       {
@@ -201,7 +272,7 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
             async (args) => {
               // Return cached entry content for the entry URL
               if (args.path === entryUrl) {
-                return { contents: stripViteHmr(finalEntry), loader: 'js' };
+                return { contents: adapter ? adapter.transformSource(finalEntry) : stripViteHmr(finalEntry), loader: 'js' };
               }
               if (Date.now() > deadline) {
                 throw new Error('Script bundling timed out');
@@ -212,7 +283,7 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
               }
               let contents = await response.text();
               // Strip Vite dev server HMR wrappers from each module
-              contents = stripViteHmr(contents);
+              contents = adapter ? adapter.transformSource(contents) : stripViteHmr(contents);
               return { contents, loader: 'js' };
             },
           );
@@ -223,13 +294,18 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
 
   let code = result.outputFiles?.[0]?.text ?? '';
 
-  // Neutralize Vite dev server preamble check in the bundled output.
-  // The Vite React plugin wraps every component with a check for
-  // __vite_plugin_react_preamble_installed__. Replace the throw with void 0.
-  code = code.replace(
-    /throw\s+new\s+Error\(\s*["']@vitejs\/plugin-react can't detect preamble\.[^"']*["']\s*\)/g,
-    'void 0',
-  );
+  // Apply adapter-specific bundle transformations (e.g. Vite preamble neutralization)
+  if (adapter) {
+    code = adapter.transformBundle(code);
+  } else {
+    // Neutralize Vite dev server preamble check in the bundled output.
+    // The Vite React plugin wraps every component with a check for
+    // __vite_plugin_react_preamble_installed__. Replace the throw with void 0.
+    code = code.replace(
+      /throw\s+new\s+Error\(\s*["']@vitejs\/plugin-react can't detect preamble\.[^"']*["']\s*\)/g,
+      'void 0',
+    );
+  }
 
   // Suppress specific throw statements from the IIFE. Config-driven: each
   // pattern in suppressErrors matches a throw new Error("...") message and
@@ -262,6 +338,7 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
 export async function loadScripts(
   ctx: VmContext,
   options?: ScriptLoaderOptions,
+  adapter?: DevServerAdapter | null,
 ): Promise<ScriptError[]> {
   const scripts = ctx.document.querySelectorAll('script');
   const baseUrl = options?.baseUrl ?? 'http://localhost/';
@@ -294,7 +371,7 @@ export async function loadScripts(
     const src = script.getAttribute('src');
     if (src) {
       // ── Skip Vite dev server infrastructure scripts ─────────────────
-      if (isViteDevScript(src)) {
+      if (adapter ? adapter.skipPatterns().some(p => p.test(src)) : isViteDevScript(src)) {
         continue;
       }
 
@@ -330,7 +407,7 @@ export async function loadScripts(
         const isModule = type === 'module' || hasEsmSyntax(code);
         if (isModule) {
           try {
-            code = await bundleToIife(code, scriptUrl, token, deadline, options?.suppressErrors);
+            code = await bundleToIife(code, scriptUrl, token, deadline, options?.suppressErrors, adapter);
           } catch (bundleErr: any) {
             errors.push({
               code: 'SCRIPT_BUNDLE_ERROR',
@@ -356,7 +433,10 @@ export async function loadScripts(
       if (!code.trim()) continue;
 
       // Skip Vite dev server inline scripts (React Fast Refresh preamble, etc.)
-      if (isViteDevInlineScript(code)) {
+      const isViteInline = adapter
+        ? (code.includes('/@react-refresh') || code.includes('__vite_plugin_react_preamble_installed__'))
+        : isViteDevInlineScript(code);
+      if (isViteInline) {
         continue;
       }
 
@@ -366,7 +446,7 @@ export async function loadScripts(
         try {
           // Create a virtual URL for the inline script so esbuild can resolve relative imports
           const virtualUrl = new URL('/__dixie_inline_module__.js', baseUrl).toString();
-          const bundled = await bundleToIife(code, virtualUrl, token, deadline, options?.suppressErrors);
+          const bundled = await bundleToIife(code, virtualUrl, token, deadline, options?.suppressErrors, adapter);
           if (bundled.trim()) {
             const result = ctx.executeScript(bundled);
             if (result.error) {

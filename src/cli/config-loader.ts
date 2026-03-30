@@ -18,12 +18,20 @@ const CONFIG_EXTENSIONS = ['.ts', '.js', '.mjs'];
 
 export async function resolveConfig(
   url: string,
-  projectRoot: string,
+  overrides?: Partial<DixieConfig> | string,
   explicitConfig?: string,
-): Promise<DixieConfig | null> {
+): Promise<DixieConfig> {
+  // Backward-compat: old callers pass (url, projectRoot, explicitConfig)
+  // where projectRoot is a string. Detect that case.
+  const isLegacyCall = typeof overrides === 'string';
+  const projectRoot = isLegacyCall ? (overrides as string) : process.cwd();
+  const configOverride = isLegacyCall ? explicitConfig : undefined;
+  const overrideObj: Partial<DixieConfig> = isLegacyCall ? {} : ((overrides as Partial<DixieConfig>) ?? {});
+
   // Explicit --config overrides domain discovery
-  if (explicitConfig) {
-    return loadConfigFile(explicitConfig);
+  if (configOverride) {
+    const fileConfig = await loadConfigFile(configOverride);
+    return { isSPA: false, ...fileConfig, ...overrideObj };
   }
 
   const domain = domainFromUrl(url);
@@ -32,12 +40,13 @@ export async function resolveConfig(
   for (const ext of CONFIG_EXTENSIONS) {
     const configPath = path.join(dixieDir, `${domain}${ext}`);
     if (fs.existsSync(configPath)) {
-      return loadConfigFile(configPath);
+      const fileConfig = await loadConfigFile(configPath);
+      return { isSPA: false, ...fileConfig, ...overrideObj };
     }
   }
 
-  // No config found — use defaults
-  return null;
+  // No config found — return safe defaults merged with any overrides
+  return { isSPA: false, ...overrideObj };
 }
 
 async function loadConfigFile(configPath: string): Promise<DixieConfig> {

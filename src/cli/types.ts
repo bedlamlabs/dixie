@@ -74,6 +74,12 @@ export interface DixieConfig {
    * from crashing React's entire tree during re-renders.
    */
   suppressErrors?: string[];
+  /**
+   * Whether the target URL is a single-page application (SPA).
+   * When true, Dixie waits for the JS framework to mount before querying.
+   * Defaults to false for safe static-page behavior.
+   */
+  isSPA?: boolean;
   mockRoutes?: Record<string, any>;
   noisePatterns?: string[];
   render?: (url: string, env: any) => any;
