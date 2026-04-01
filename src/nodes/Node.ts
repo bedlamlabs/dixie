@@ -80,7 +80,7 @@ export class Node extends EventTarget {
   _textData: string | null = null;
 
   /** Internal children array — shared with the live NodeList. */
-  protected _children: Node[] = [];
+  _children: Node[] = [];
 
   /** Cached live NodeList — created lazily on first access. */
   private _childNodes: NodeList<Node> | null = null;

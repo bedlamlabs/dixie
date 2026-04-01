@@ -58,7 +58,7 @@ export { UIEvent, MouseEvent, KeyboardEvent, FocusEvent, InputEvent, PointerEven
 export { Window } from './browser/Window';
 export { Location } from './browser/Location';
 export { History } from './browser/History';
-export { Navigator } from './browser/Navigator';
+export { Navigator, DEFAULT_USER_AGENT } from './browser/Navigator';
 export { Screen } from './browser/Screen';
 export { createStorage } from './browser/Storage';
 export { TimerController } from './browser/Timers';
@@ -99,6 +99,8 @@ export { DixieResponse } from './fetch';
 export { DixieRequest } from './fetch';
 export { DixieHeaders } from './fetch';
 export { ContractValidator } from './fetch';
+export { LiveFetch } from './fetch';
+export type { LiveFetchOptions } from './fetch';
 
 // Round 14: Assertions & Snapshots
 export { DixieAssertions, DixieSnapshot, DiffSnapshot } from './assertions';
@@ -142,6 +144,8 @@ export { collectConsole } from './collectors/console';
 export { collectApi } from './collectors/api';
 export { collectExpectedCalls } from './collectors/expected-calls';
 export { collectErrors } from './collectors/errors';
+export { collectPage } from './collectors/page';
+export type { PageContent } from './collectors/page';
 
 // Queries
 export { getByTestId, getAllByTestId } from './queries/test-id';
@@ -156,6 +160,9 @@ export { select } from './interaction/select';
 // Execution
 export { createVmContext } from './execution/vm-context';
 export { loadScripts } from './execution/script-loader';
+export type { ScriptLoadOptions, ScriptLoadResult } from './execution/script-loader';
+export { isModuleLoaderAvailable, executeModule } from './execution/module-loader';
+export type { ModuleLoaderOptions, ModuleLoadResult } from './execution/module-loader';
 
 // HAR
 export { HarRecorder } from './har/recorder';

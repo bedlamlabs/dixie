@@ -75,7 +75,7 @@ export class Element extends Node {
 
   // ── Select element support ─────────────────────────────────────────
 
-  get options(): any[] {
+  get options(): any {
     if (this.tagName !== 'SELECT') return [];
     const opts: Element[] = [];
     for (const child of this._children) {

@@ -6,6 +6,13 @@ import { DocumentFragment } from './DocumentFragment';
 import { HTMLCollection } from '../collections/HTMLCollection';
 import { NodeList } from './NodeList';
 import { parseSelector, querySelectorAllElements, querySelectorFirstElement, _fastQueryFirst, _fastQueryAll } from '../selectors';
+import { HTMLInputElement } from './HTMLInputElement';
+import { HTMLSelectElement } from './HTMLSelectElement';
+import { HTMLTextAreaElement } from './HTMLTextAreaElement';
+import { HTMLFormElement } from './HTMLFormElement';
+import { HTMLOptionElement } from './HTMLOptionElement';
+import { HTMLButtonElement } from './HTMLButtonElement';
+import { HTMLLabelElement } from './HTMLLabelElement';
 
 /**
  * Document — the root node of a DOM tree.
@@ -210,7 +217,36 @@ export class Document extends Node {
   // ── Factory methods ────────────────────────────────────────────────
 
   createElement(tagName: string): Element {
-    const el = new Element(tagName);
+    const lower = tagName.toLowerCase();
+    let el: Element;
+
+    switch (lower) {
+      case 'input':
+        el = new HTMLInputElement();
+        break;
+      case 'select':
+        el = new HTMLSelectElement() as unknown as Element;
+        break;
+      case 'textarea':
+        el = new HTMLTextAreaElement();
+        break;
+      case 'form':
+        el = new HTMLFormElement();
+        break;
+      case 'option':
+        el = new HTMLOptionElement();
+        break;
+      case 'button':
+        el = new HTMLButtonElement();
+        break;
+      case 'label':
+        el = new HTMLLabelElement();
+        break;
+      default:
+        el = new Element(lower);
+        break;
+    }
+
     el.ownerDocument = this;
     return el;
   }
@@ -643,7 +679,7 @@ class TreeWalker {
   parentNode(): Node | null {
     let node = this.currentNode;
     while (node !== this.root) {
-      const parent = node.parentNode;
+      const parent: Node | null = node.parentNode;
       if (!parent) return null;
       if (this._acceptNode(parent) === NodeIteratorFilter.FILTER_ACCEPT) {
         this.currentNode = parent;
@@ -667,7 +703,7 @@ class TreeWalker {
     }
     // Try next sibling, or parent's next sibling
     while (node && node !== this.root) {
-      const parent = node.parentNode;
+      const parent: Node | null = node.parentNode;
       if (!parent) return null;
       const siblings = parent._children;
       const idx = siblings.indexOf(node);
@@ -686,7 +722,7 @@ class TreeWalker {
     let node: Node | null = this.currentNode;
     if (node === this.root) return null;
     // Try previous sibling's deepest last child
-    const parent = node.parentNode;
+    const parent: Node | null = node.parentNode;
     if (!parent) return null;
     const siblings = parent._children;
     const idx = siblings.indexOf(node);

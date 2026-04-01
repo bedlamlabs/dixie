@@ -1,5 +1,7 @@
 import * as vm from 'node:vm';
 import { createDixieEnvironment } from '../environment';
+import { LiveFetch } from '../fetch/LiveFetch';
+import { DEFAULT_USER_AGENT } from '../browser/Navigator';
 import type { DixieEnvironment } from '../environment';
 import { MockFetch } from '../fetch/MockFetch';
 import type { HarRecorder } from '../har/recorder';
@@ -92,8 +94,11 @@ class XMLHttpRequestShim {
 export interface VmContextOptions {
   timeout?: number;
   url?: string;
+  userAgent?: string;
   /** Optional HAR recorder — when provided, in-page fetch() calls are recorded. */
   harRecorder?: HarRecorder;
+  /** When true (default), scripts in the VM can call fetch(). Set false for test isolation. */
+  enableFetch?: boolean;
 }
 
 export interface ScriptResult {
@@ -109,6 +114,10 @@ export interface VmContext {
   env: DixieEnvironment;
   /** The MockFetch instance for registering routes in the vm sandbox */
   mockFetch: MockFetch;
+  /** The LiveFetch instance wired into the VM, if enableFetch is true. */
+  liveFetch?: LiveFetch;
+  /** The raw vm.Context for module execution. */
+  _vmContext?: import('node:vm').Context;
 }
 
 /**
@@ -123,19 +132,29 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
   let env: DixieEnvironment;
   let timeout = 5000;
   let harRecorder: HarRecorder | undefined;
+  let liveFetch: LiveFetch | undefined;
 
   if (envOrOptions && 'document' in envOrOptions && 'window' in envOrOptions) {
     // Called with an existing DixieEnvironment
     env = envOrOptions as DixieEnvironment;
   } else {
     const options = envOrOptions as VmContextOptions | undefined;
-    env = createDixieEnvironment({ url: options?.url ?? 'http://localhost/' });
+    const url = options?.url ?? 'http://localhost/';
+    const userAgent = options?.userAgent ?? DEFAULT_USER_AGENT;
+    env = createDixieEnvironment({
+      url,
+      ...(options?.userAgent ? { userAgent: options.userAgent } : {}),
+    });
     const rawTimeout = options?.timeout ?? 5000;
     // Guard: reject NaN, Infinity, <= 0, or non-number — fall back to default 5000ms
     timeout = (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0)
       ? rawTimeout
       : 5000;
     harRecorder = options?.harRecorder;
+
+    // Create LiveFetch for real network access from within scripts
+    const enableFetch = options?.enableFetch !== false;
+    liveFetch = enableFetch ? new LiveFetch({ pageUrl: url, userAgent }) : undefined;
   }
   const win = env.window;
 
@@ -307,6 +326,12 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     XMLHttpRequest: XMLHttpRequestShim,
   };
 
+  // Wire LiveFetch into the VM so scripts can make real network requests
+  // (overrides MockFetch when LiveFetch is available)
+  if (liveFetch) {
+    sandbox.fetch = liveFetch.fetch.bind(liveFetch);
+  }
+
   // window === globalThis === self === sandbox (browser behaviour).
   // Intentional: browsers define window.window === window. This circular reference
   // is required for browser-compat code that accesses window.window or self.self.
@@ -381,5 +406,7 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     executeScript,
     env,
     mockFetch,
+    liveFetch,
+    _vmContext: context,
   };
 }

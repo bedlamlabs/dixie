@@ -87,7 +87,7 @@ export class EventTarget {
    */
   dispatchEvent(event: Event): boolean {
     // Set the target
-    event.target = this;
+    event.target = this as any;
 
     // Build the propagation path: [this, parent, grandparent, ..., root]
     const path: EventTarget[] = [];
@@ -103,7 +103,7 @@ export class EventTarget {
     // ── Capture phase (root → target, excluding target) ────────────
     event.eventPhase = Event.CAPTURING_PHASE;
     for (let i = ancestors.length - 1; i >= 0; i--) {
-      event.currentTarget = ancestors[i];
+      event.currentTarget = ancestors[i] as any;
       _invokeListeners(ancestors[i], event, /* captureOnly */ true);
       if (event._stopPropagation) break;
     }
@@ -111,7 +111,7 @@ export class EventTarget {
     // ── At-target phase ────────────────────────────────────────────
     if (!event._stopPropagation) {
       event.eventPhase = Event.AT_TARGET;
-      event.currentTarget = this;
+      event.currentTarget = this as any;
       // At target, fire both capture and bubble listeners (in registration order)
       _invokeListeners(this, event, /* captureOnly */ null);
     }
@@ -120,7 +120,7 @@ export class EventTarget {
     if (event.bubbles && !event._stopPropagation) {
       event.eventPhase = Event.BUBBLING_PHASE;
       for (let i = 0; i < ancestors.length; i++) {
-        event.currentTarget = ancestors[i];
+        event.currentTarget = ancestors[i] as any;
         _invokeListeners(ancestors[i], event, /* captureOnly */ false);
         if (event._stopPropagation) break;
       }

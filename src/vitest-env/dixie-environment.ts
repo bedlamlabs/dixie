@@ -160,7 +160,7 @@ export async function setupDixieGlobals(
   });
   window.document = document;
   if ('defaultView' in document) {
-    (document as Record<string, unknown>).defaultView = window;
+    (document as unknown as Record<string, unknown>).defaultView = window;
   }
 
   const localStorage = createStorage();

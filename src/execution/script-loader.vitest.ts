@@ -490,6 +490,7 @@ describe('CLI --text flag: query command', () => {
       bail: false,
       noColor: false,
       selectorStrategy: 'css',
+      samples: 100,
       rest: [],
     });
 
@@ -514,6 +515,7 @@ describe('CLI --text flag: query command', () => {
       bail: false,
       noColor: false,
       selectorStrategy: 'css',
+      samples: 100,
       rest: [],
     });
 

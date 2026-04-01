@@ -104,7 +104,7 @@ export class TimerController {
 
     if (this._mode === 'real') {
       const handle = _nativeSetTimeout(() => {
-        this._realHandles.delete(id);
+        this._realHandles.delete(id as number);
         callback(...args);
       }, delay);
       this._realHandles.set(id, handle);
@@ -127,10 +127,10 @@ export class TimerController {
 
   clearTimeout(id: number | TimerHandle): void {
     if (this._mode === 'real') {
-      const handle = this._realHandles.get(id);
+      const handle = this._realHandles.get(id as number);
       if (handle !== undefined) {
         _nativeClearTimeout(handle);
-        this._realHandles.delete(id);
+        this._realHandles.delete(id as number);
       }
       return;
     }
@@ -140,7 +140,7 @@ export class TimerController {
 
     // Track if cleared during callback execution (for interval self-clearing)
     if (this._isExecutingCallback) {
-      this._clearedDuringExecution.add(id);
+      this._clearedDuringExecution.add(id as number);
     }
   }
 
@@ -181,7 +181,7 @@ export class TimerController {
     if (this._mode === 'real') {
       // Node.js has no native rAF — simulate with setTimeout(16ms)
       const handle = _nativeSetTimeout(() => {
-        this._realHandles.delete(id);
+        this._realHandles.delete(id as number);
         callback(Date.now());
       }, RAF_FRAME_TIME);
       this._realHandles.set(id, handle);

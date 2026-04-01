@@ -1,4 +1,43 @@
+/**
+ * Script loader — fetches and executes <script> tags in document order.
+ *
+ * Handles inline scripts, external scripts, and ES modules with correct
+ * async/defer ordering semantics. External scripts are fetched in parallel
+ * and executed in document order for maximum speed.
+ *
+ * ES modules are executed via Node's vm.SourceTextModule with a recursive
+ * linker that resolves imports by fetching them through LiveFetch.
+ *
+ * Speed architecture:
+ * - Zero overhead for pages with no external scripts (sync fast path)
+ * - All external scripts fetched concurrently via Promise.allSettled()
+ * - Per-script AbortController timeout — one hanging CDN doesn't block the rest
+ * - Promise-level cache on LiveFetch deduplicates same-URL scripts
+ * - Module cache prevents re-fetching/re-linking shared dependencies
+ */
+
 import type { VmContext } from './vm-context';
+import { isModuleLoaderAvailable, executeModule } from './module-loader';
+
+// ── Types ─────────────────────────────────────────────────────────────
+
+export interface ScriptLoadOptions {
+  /** Function to fetch script text by URL. Defaults to liveFetch.fetchText if available. */
+  fetchFn?: (url: string) => Promise<string>;
+  /** Timeout per external script fetch in ms. Default: 10000. */
+  scriptTimeout?: number;
+  /** Callback for individual script errors (non-fatal). */
+  onScriptError?: (src: string, error: Error) => void;
+}
+
+export interface ScriptLoadResult {
+  executed: number;
+  failed: number;
+  skipped: number;
+  errors: Array<{ src: string; error: string }>;
+}
+
+// ── Constants ─────────────────────────────────────────────────────────
 
 const EXECUTABLE_TYPES = new Set([
   '',           // no type attribute = JavaScript
@@ -324,6 +363,25 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
   return code;
 }
 
+// ── Script Classification (v5 architecture) ─────────────────────────
+
+const enum ScriptKind {
+  INLINE,
+  EXTERNAL_SYNC,
+  EXTERNAL_DEFER,
+  EXTERNAL_ASYNC,
+  MODULE_EXTERNAL,
+  MODULE_INLINE,
+  SKIP,
+}
+
+interface ClassifiedScript {
+  kind: ScriptKind;
+  element: any;
+  src?: string;
+  code?: string;
+}
+
 /**
  * Load and execute all <script> tags in the document.
  *
@@ -469,4 +527,265 @@ export async function loadScripts(
   }
 
   return errors;
+}
+
+// ── v5 Script Loader (classify-then-execute architecture) ───────────
+// Alternative loading strategy with proper async/defer ordering,
+// native ES module support via vm.SourceTextModule, and parallel fetch.
+
+/**
+ * Classify and execute scripts with proper async/defer/module ordering.
+ * Uses the v5 classify-then-execute architecture with native ES module support.
+ */
+export async function loadScriptsV5(
+  ctx: VmContext,
+  options?: ScriptLoadOptions,
+): Promise<ScriptLoadResult> {
+  const scripts = ctx.document.querySelectorAll('script');
+  if (scripts.length === 0) {
+    return { executed: 0, failed: 0, skipped: 0, errors: [] };
+  }
+
+  // Phase 1: Scan & Classify
+  const classified: ClassifiedScript[] = [];
+  let hasExternal = false;
+  let hasModules = false;
+
+  for (const script of scripts) {
+    const type = (script.getAttribute('type') ?? '').toLowerCase().trim();
+
+    // Skip non-JS scripts (application/json, application/ld+json, etc.)
+    if (type && !EXECUTABLE_TYPES.has(type)) {
+      classified.push({ kind: ScriptKind.SKIP, element: script });
+      continue;
+    }
+
+    const src = script.getAttribute('src');
+    const isModule = type === 'module';
+
+    if (!src) {
+      // Inline script
+      const code = script.textContent ?? '';
+      if (code.trim()) {
+        if (isModule) {
+          classified.push({ kind: ScriptKind.MODULE_INLINE, element: script, code });
+          hasModules = true;
+        } else {
+          classified.push({ kind: ScriptKind.INLINE, element: script, code });
+        }
+      } else {
+        classified.push({ kind: ScriptKind.SKIP, element: script });
+      }
+      continue;
+    }
+
+    // External script
+    hasExternal = true;
+
+    if (isModule) {
+      classified.push({ kind: ScriptKind.MODULE_EXTERNAL, element: script, src });
+      hasModules = true;
+      continue;
+    }
+
+    const isAsync = script.hasAttribute('async');
+    const isDefer = script.hasAttribute('defer');
+
+    if (isAsync) {
+      classified.push({ kind: ScriptKind.EXTERNAL_ASYNC, element: script, src });
+    } else if (isDefer) {
+      classified.push({ kind: ScriptKind.EXTERNAL_DEFER, element: script, src });
+    } else {
+      classified.push({ kind: ScriptKind.EXTERNAL_SYNC, element: script, src });
+    }
+  }
+
+  // Fast path: no external scripts and no modules — execute inline only, synchronously
+  if (!hasExternal && !hasModules) {
+    return executeInlineOnly(ctx, classified);
+  }
+
+  // Resolve fetch function
+  const fetchFn = options?.fetchFn
+    ?? (ctx.liveFetch ? (url: string) => ctx.liveFetch!.fetchText(url, { timeout: options?.scriptTimeout ?? 10000 }) : undefined);
+
+  if (!fetchFn) {
+    // No fetch capability — execute inline scripts only, skip external
+    return executeInlineOnly(ctx, classified);
+  }
+
+  // Check if module execution is available
+  const canRunModules = hasModules && isModuleLoaderAvailable();
+
+  // Phase 2: Parallel Fetch of all external script URLs (including modules)
+  const scriptTimeout = options?.scriptTimeout ?? 10000;
+  const externalUrls = new Set<string>();
+  const pageUrl = ctx.env.window.location?.href ?? 'http://localhost/';
+
+  for (const c of classified) {
+    if (c.src && (c.kind === ScriptKind.EXTERNAL_SYNC || c.kind === ScriptKind.EXTERNAL_DEFER
+      || c.kind === ScriptKind.EXTERNAL_ASYNC || c.kind === ScriptKind.MODULE_EXTERNAL)) {
+      // Resolve relative URLs
+      try {
+        const resolved = new URL(c.src, pageUrl).href;
+        c.src = resolved;
+        externalUrls.add(resolved);
+      } catch {
+        externalUrls.add(c.src);
+      }
+    }
+  }
+
+  const fetchResults = new Map<string, string>();
+  const fetchErrors = new Map<string, string>();
+
+  const fetchPromises = [...externalUrls].map(async (url) => {
+    try {
+      const text = await fetchFn(url);
+      fetchResults.set(url, text);
+    } catch (err: any) {
+      const msg = err.name === 'AbortError' ? `Timeout after ${scriptTimeout}ms` : (err.message ?? String(err));
+      fetchErrors.set(url, msg);
+      options?.onScriptError?.(url, err);
+    }
+  });
+
+  await Promise.allSettled(fetchPromises);
+
+  // Phase 3: Execute in document order
+  const result: ScriptLoadResult = { executed: 0, failed: 0, skipped: 0, errors: [] };
+  const deferred: ClassifiedScript[] = [];
+  // Modules execute after all classic scripts (per HTML spec)
+  const modules: ClassifiedScript[] = [];
+
+  for (const c of classified) {
+    switch (c.kind) {
+      case ScriptKind.SKIP:
+        result.skipped++;
+        break;
+
+      case ScriptKind.INLINE: {
+        const scriptResult = ctx.executeScript(c.code!);
+        if (scriptResult.error) {
+          result.failed++;
+          result.errors.push({ src: 'inline', error: scriptResult.error });
+        } else {
+          result.executed++;
+        }
+        break;
+      }
+
+      case ScriptKind.EXTERNAL_SYNC:
+      case ScriptKind.EXTERNAL_ASYNC: {
+        const code = fetchResults.get(c.src!);
+        if (code !== undefined) {
+          const scriptResult = ctx.executeScript(code);
+          if (scriptResult.error) {
+            result.failed++;
+            result.errors.push({ src: c.src!, error: scriptResult.error });
+          } else {
+            result.executed++;
+          }
+        } else {
+          const fetchErr = fetchErrors.get(c.src!) ?? 'Unknown fetch error';
+          result.failed++;
+          result.errors.push({ src: c.src!, error: `Failed to fetch: ${fetchErr}` });
+        }
+        break;
+      }
+
+      case ScriptKind.EXTERNAL_DEFER:
+        deferred.push(c);
+        break;
+
+      case ScriptKind.MODULE_EXTERNAL:
+      case ScriptKind.MODULE_INLINE:
+        modules.push(c);
+        break;
+    }
+  }
+
+  // Execute deferred scripts in document order (after all sync scripts)
+  for (const c of deferred) {
+    const code = fetchResults.get(c.src!);
+    if (code !== undefined) {
+      const scriptResult = ctx.executeScript(code);
+      if (scriptResult.error) {
+        result.failed++;
+        result.errors.push({ src: c.src!, error: scriptResult.error });
+      } else {
+        result.executed++;
+      }
+    } else {
+      const fetchErr = fetchErrors.get(c.src!) ?? 'Unknown fetch error';
+      result.failed++;
+      result.errors.push({ src: c.src!, error: `Failed to fetch: ${fetchErr}` });
+    }
+  }
+
+  // Execute modules (after all classic and deferred scripts, per HTML spec)
+  for (const c of modules) {
+    if (!canRunModules) {
+      result.skipped++;
+      const src = c.src ?? 'inline module';
+      result.errors.push({
+        src,
+        error: 'ES modules require Node.js with --experimental-vm-modules flag',
+      });
+      continue;
+    }
+
+    const src = c.src ?? `inline-module-${result.executed}`;
+    let code: string | undefined;
+
+    if (c.kind === ScriptKind.MODULE_INLINE) {
+      code = c.code;
+    } else {
+      code = fetchResults.get(c.src!);
+      if (code === undefined) {
+        const fetchErr = fetchErrors.get(c.src!) ?? 'Unknown fetch error';
+        result.failed++;
+        result.errors.push({ src, error: `Failed to fetch module: ${fetchErr}` });
+        continue;
+      }
+    }
+
+    const modResult = await executeModule(code!, src, {
+      fetchFn,
+      vmContext: ctx._vmContext!,
+      baseUrl: pageUrl,
+      timeout: scriptTimeout,
+    });
+
+    if (modResult.executed) {
+      result.executed++;
+    } else {
+      result.failed++;
+      result.errors.push({ src, error: modResult.error ?? 'Module execution failed' });
+    }
+  }
+
+  return result;
+}
+
+// ── Fast path: inline-only execution (no async, no promises) ──────────
+
+function executeInlineOnly(ctx: VmContext, classified: ClassifiedScript[]): ScriptLoadResult {
+  const result: ScriptLoadResult = { executed: 0, failed: 0, skipped: 0, errors: [] };
+
+  for (const c of classified) {
+    if (c.kind === ScriptKind.INLINE) {
+      const scriptResult = ctx.executeScript(c.code!);
+      if (scriptResult.error) {
+        result.failed++;
+        result.errors.push({ src: 'inline', error: scriptResult.error });
+      } else {
+        result.executed++;
+      }
+    } else {
+      result.skipped++;
+    }
+  }
+
+  return result;
 }

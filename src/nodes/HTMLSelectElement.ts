@@ -168,7 +168,11 @@ export class HTMLSelectElement extends Element {
     }
   }
 
-  remove(index: number): void {
+  override remove(index?: number): void {
+    if (index === undefined) {
+      super.remove();
+      return;
+    }
     const opts = this._getOptionElements();
     if (index >= 0 && index < opts.length) {
       this.removeChild(opts[index]);
@@ -179,6 +183,10 @@ export class HTMLSelectElement extends Element {
         this._selectedIndex--;
       }
     }
+  }
+
+  protected _copyCloneState(clone: Element): void {
+    (clone as unknown as HTMLSelectElement)._selectedIndex = this._selectedIndex;
   }
 
   // ── Validation ────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     bail: false,
     noColor: false,
     selectorStrategy: 'css',
+    samples: 100,
     rest: [],
   };
 
@@ -75,6 +76,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
       args.key = argv[++i];
     } else if (arg === '--validate') {
       args.validate = true;
+    } else if (arg === '--out' && i + 1 < argv.length) {
+      args.snapshotOut = argv[++i];
+    } else if (arg === '--har' && i + 1 < argv.length) {
+      args.harFile = argv[++i];
+    } else if (arg === '--samples' && i + 1 < argv.length) {
+      args.samples = parseInt(argv[++i], 10);
+    } else if (arg === '--user-agent' && i + 1 < argv.length) {
+      args.userAgent = argv[++i];
     } else if (arg === '--no-js') {
       args.noJs = true;
     } else if (arg === '--parallel') {

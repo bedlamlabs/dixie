@@ -11,3 +11,5 @@ export { MockFetch } from './MockFetch';
 export type { MockResponseConfig, MockResponseHandler, RecordedRequest } from './MockFetch';
 export { ContractValidator } from './ContractValidator';
 export type { EndpointContract, ContractViolation, ValidationResult } from './ContractValidator';
+export { LiveFetch } from './LiveFetch';
+export type { LiveFetchOptions } from './LiveFetch';
