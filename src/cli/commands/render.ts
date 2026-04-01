@@ -1,10 +1,12 @@
 import type { ParsedArgs, CommandResult, DixieConfig } from '../types';
-import { createDixieEnvironment } from '../../environment';
 import { createVmContext } from '../../execution/vm-context';
 import { loadScripts } from '../../execution/script-loader';
 import { flushReactRender } from '../../execution/event-loop-flush';
 import { resolveConfig } from '../config-loader';
 import { formatOutput } from '../format';
+import { collectPage } from '../../collectors/page';
+import { DEFAULT_USER_AGENT } from '../../browser/Navigator';
+import { Event } from '../../events';
 import type { HarRecorder } from '../../har/recorder';
 import * as path from 'node:path';
 
@@ -13,6 +15,7 @@ export interface RenderOptions {
   config?: DixieConfig;
   timeout?: number;
   noJs?: boolean;
+  userAgent?: string;
   /** Explicit path to a dixie config file — errors thrown (not swallowed) */
   configPath?: string;
   /** HAR recorder to capture the initial HTML fetch */
@@ -29,6 +32,8 @@ export interface RenderResult {
     tokenSource?: string;
     tokenValue?: string;
     auth?: { status: string; reason?: string };
+    scriptsExecuted?: number;
+    scriptsFailed?: number;
   };
   errors: Array<{ code: string; message: string }>;
   /** Flush the event loop so React can settle after interactions (click, type). */
@@ -86,6 +91,26 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     }
   }
 
+  // Resolve SPA SSR endpoint from config
+  const spaConfig = config?.spa;
+  let fetchUrl = url;
+  let ssrActive = false;
+
+  if (spaConfig?.ssrEndpoint && !url.startsWith('data:')) {
+    try {
+      const originalUrl = new URL(url);
+      const endpoint = spaConfig.ssrEndpoint;
+      if (endpoint.startsWith('http')) {
+        fetchUrl = `${endpoint}?path=${encodeURIComponent(originalUrl.pathname + originalUrl.search)}`;
+      } else {
+        fetchUrl = `${originalUrl.origin}${endpoint}?path=${encodeURIComponent(originalUrl.pathname + originalUrl.search)}`;
+      }
+      ssrActive = true;
+    } catch {
+      // Invalid URL — fall through to normal fetch
+    }
+  }
+
   // Fetch HTML
   let html: string;
   const parseStart = performance.now();
@@ -121,12 +146,27 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     }
 
     try {
-      const headers: Record<string, string> = {};
+      const ua = options?.userAgent ?? DEFAULT_USER_AGENT;
+      const headers: Record<string, string> = {
+        'User-Agent': ua,
+      };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      const response = await fetch(url, { headers });
-      html = await response.text();
+      const response = await fetch(fetchUrl, { headers });
+
+      // SSR fallback: if SSR endpoint fails, retry with original URL
+      if (ssrActive && !response.ok) {
+        if (spaConfig?.fallback === 'error') {
+          throw new Error(`SSR endpoint returned ${response.status}: ${response.statusText}`);
+        }
+        // fallback: 'shell' (default) — fetch the original URL
+        const fallbackResponse = await fetch(url, { headers });
+        html = await fallbackResponse.text();
+        ssrActive = false;
+      } else {
+        html = await response.text();
+      }
     } catch (err: any) {
       const error = new Error(`Could not reach ${url}: ${err.message}`);
       (error as any).code = 'FETCH_FAILED';
@@ -148,7 +188,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   // real server so React can authenticate, load data, and render actual content.
   // Without this, MockFetch returns 404 for all API calls and React renders the
   // login page instead of the requested route.
-  if (!url.startsWith('data:')) {
+  if (!url.startsWith('data:') && !ssrActive) {
     try {
       const origin = new URL(url).origin;
       const passthroughFetch = async (input: any, init?: any) => {
@@ -180,10 +220,11 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
     }
   }
 
-  // Parse full HTML document structure
-  // Extract head/body content and title from the raw HTML
-  const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  // Parse full HTML document structure using Dixie's own parser.
+  // Greedy regex ensures we capture the full head/body content
+  // even for large or complex documents.
+  const headMatch = html.match(/<head[^>]*>([\s\S]*)<\/head>/i);
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
 
   if (headMatch) {
@@ -202,21 +243,24 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
   // Pre-seed storage from config BEFORE scripts execute.
   // SPAs read auth tokens from localStorage/sessionStorage. Without pre-seeding,
   // the app sees empty storage and renders the login page.
-  if (config?.preseed?.localStorage && ctx.sandbox?.localStorage) {
+  if (!ssrActive && config?.preseed?.localStorage && ctx.sandbox?.localStorage) {
     for (const [key, value] of Object.entries(config.preseed.localStorage)) {
       // Replace {{token}} placeholder with the acquired auth token
       ctx.sandbox.localStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
     }
   }
-  if (config?.preseed?.sessionStorage && ctx.sandbox?.sessionStorage) {
+  if (!ssrActive && config?.preseed?.sessionStorage && ctx.sandbox?.sessionStorage) {
     for (const [key, value] of Object.entries(config.preseed.sessionStorage)) {
       ctx.sandbox.sessionStorage.setItem(key, value === '{{token}}' ? (token ?? '') : value);
     }
   }
 
-  // Execute scripts unless --no-js
-  if (options?.noJs) {
-    // Strip script tags from the DOM when JS is disabled
+  // Execute scripts unless --no-js or SSR is active (HTML is already complete)
+  let scriptsExecuted = 0;
+  let scriptsFailed = 0;
+
+  if (options?.noJs || ssrActive) {
+    // Strip script tags from the DOM when JS is disabled or SSR provided full HTML
     const scripts = ctx.document.querySelectorAll('script');
     for (const script of scripts) {
       script.parentNode?.removeChild(script);
@@ -244,6 +288,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
         deadline: scriptDeadline,
         suppressErrors: config?.suppressErrors,
       });
+      scriptsExecuted = scriptErrors.length === 0 ? 1 : 0;
       errors.push(...scriptErrors);
 
       // Flush React's async scheduler (MessageChannel-deferred reconciliation).
@@ -274,6 +319,14 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       // Collect any async errors that were captured during execution
       errors.push(...asyncErrors);
     }
+
+    // Dispatch lifecycle events — SPAs listen for these
+    try {
+      ctx.document.dispatchEvent(new Event('DOMContentLoaded', { bubbles: true }));
+      ctx.window.dispatchEvent?.(new Event('load'));
+    } catch {
+      // Event dispatch is best-effort
+    }
   }
 
   const renderMs = performance.now() - start;
@@ -287,6 +340,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       configSource,
       ...(tokenSource ? { tokenSource } : {}),
       ...(authMeta ? { auth: authMeta } : {}),
+      ...(scriptsExecuted > 0 || scriptsFailed > 0 ? { scriptsExecuted, scriptsFailed } : {}),
     },
     errors,
     flush: (opts) => flushReactRender(ctx.document, {
@@ -313,19 +367,12 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       token: args.token,
       timeout: args.timeout,
       noJs: args.noJs,
+      userAgent: args.userAgent,
       configPath: args.config,
     });
 
-    const output = formatOutput({
-      url: result.meta.url,
-      title: result.document.title ?? '',
-      renderMs: result.meta.renderMs,
-      parseMs: result.meta.parseMs,
-      configSource: result.meta.configSource,
-      tokenSource: result.meta.tokenSource,
-      elementCount: result.document.querySelectorAll('*').length,
-      errors: result.errors,
-    }, args.format);
+    const pageContent = collectPage(result.document, result.meta, result.errors);
+    const output = formatOutput(pageContent, args.format);
 
     return { exitCode: 0, output, data: result };
   } catch (err: any) {

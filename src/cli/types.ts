@@ -24,6 +24,10 @@ export interface ParsedArgs {
   noColor: boolean;
   config?: string;
   selectorStrategy: 'css' | 'testId' | 'role' | 'label';
+  snapshotOut?: string;
+  harFile?: string;
+  userAgent?: string;
+  samples: number;
   rest: string[];
 }
 
@@ -57,6 +61,23 @@ export interface DixieConfig {
      *   'app-root'     — Angular
      */
     mountSelector?: string;
+
+    /**
+     * SSR endpoint path (e.g. '/ssr/render') or full URL.
+     * When set, Dixie fetches pre-rendered HTML from this endpoint
+     * instead of the raw SPA shell. Sends: GET {ssrEndpoint}?path={route}
+     * with the auth token in the Authorization header.
+     *
+     * Script execution is automatically skipped when SSR is active.
+     */
+    ssrEndpoint?: string;
+
+    /**
+     * Fallback when the SSR endpoint returns non-200 or is unreachable.
+     * 'shell' = parse the HTML shell as-is (default)
+     * 'error' = fail with exit code 1
+     */
+    fallback?: 'shell' | 'error';
   };
   /**
    * Pre-seed localStorage/sessionStorage before scripts execute.
