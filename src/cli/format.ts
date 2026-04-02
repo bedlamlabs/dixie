@@ -1,9 +1,11 @@
 import yaml from 'js-yaml';
 
-export function formatOutput(data: any, format: string): string {
+export function formatOutput(data: any, format: string, color = process.stdout?.isTTY ?? false): string {
   switch (format) {
-    case 'json':
-      return JSON.stringify(data, null, 2);
+    case 'json': {
+      const json = JSON.stringify(data, null, 2);
+      return color ? colorizeJson(json) : json;
+    }
 
     case 'yaml':
       return yaml.dump(data, { noRefs: true, lineWidth: -1 });
@@ -58,6 +60,30 @@ function csvEscape(val: string): string {
     return `"${val.replace(/"/g, '""')}"`;
   }
   return val;
+}
+
+// jq-style JSON syntax highlighting for TTY output
+function colorizeJson(json: string): string {
+  const RESET = '\x1b[0m';
+  const KEY = '\x1b[1;34m';     // bold blue — keys
+  const STRING = '\x1b[32m';    // green — string values
+  const NUMBER = '\x1b[33m';    // yellow — numbers
+  const BOOL = '\x1b[35m';      // magenta — true/false/null
+  const BRACE = '\x1b[2m';      // dim — {} []
+  const COLON = '\x1b[2m';      // dim — : ,
+
+  return json.replace(
+    /("(?:\\.|[^"\\])*")\s*(:)?|(\b(?:true|false|null)\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}\[\]])|([,:])/g,
+    (match, str, colon, bool, num, brace, punct) => {
+      if (str && colon) return `${KEY}${str}${RESET}${COLON}:${RESET}`;
+      if (str) return `${STRING}${str}${RESET}`;
+      if (bool) return `${BOOL}${bool}${RESET}`;
+      if (num) return `${NUMBER}${num}${RESET}`;
+      if (brace) return `${BRACE}${brace}${RESET}`;
+      if (punct) return `${COLON}${punct}${RESET}`;
+      return match;
+    }
+  );
 }
 
 function flattenObject(obj: any, prefix = ''): [string, any][] {
