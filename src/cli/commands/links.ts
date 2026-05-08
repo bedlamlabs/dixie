@@ -15,7 +15,7 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
     const result = await renderUrl(args.url, {
       token: args.token,
       timeout: args.timeout,
-      noJs: args.noJs,
+      noJs: true,
     });
 
     const data = collectLinks(result.document);

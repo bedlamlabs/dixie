@@ -120,6 +120,32 @@ export interface VmContext {
   _vmContext?: import('node:vm').Context;
 }
 
+function createSandboxConsole(): Console {
+  const noop = () => {};
+  return {
+    ...console,
+    assert: noop,
+    clear: noop,
+    count: noop,
+    countReset: noop,
+    debug: noop,
+    dir: noop,
+    dirxml: noop,
+    error: noop,
+    group: noop,
+    groupCollapsed: noop,
+    groupEnd: noop,
+    info: noop,
+    log: noop,
+    table: noop,
+    time: noop,
+    timeEnd: noop,
+    timeLog: noop,
+    trace: noop,
+    warn: noop,
+  };
+}
+
 /**
  * SECURITY: This sandbox is NOT an isolation boundary.
  * Rendered page code can access the host Node.js process via prototype chain escape.
@@ -173,7 +199,7 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     document: env.document,
 
     // ── Console ────────────────────────────────────────────────────────
-    console: (win as any).console ?? console,
+    console: (win as any).console ?? createSandboxConsole(),
 
     // ── Timers ─────────────────────────────────────────────────────────
     // Use real Node timers so that async React scheduling can flush

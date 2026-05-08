@@ -7,14 +7,23 @@
 
 import { parseArgs, dispatch } from '../src/cli/index.ts';
 import { formatOutput } from '../src/cli/format.ts';
+import { once } from 'node:events';
+
+async function writeStdout(output: string): Promise<void> {
+  if (!process.stdout.write(output)) {
+    await once(process.stdout, 'drain');
+  }
+}
 
 const args = parseArgs(process.argv.slice(2));
 const result = await dispatch(args);
 
 if (result.output !== undefined) {
-  process.stdout.write(result.output + '\n');
+  await writeStdout(result.output + '\n');
 } else if (result.data !== undefined) {
-  process.stdout.write(formatOutput(result.data, args.format ?? 'json') + '\n');
+  await writeStdout(formatOutput(result.data, args.format ?? 'json') + '\n');
+} else if (result.errors !== undefined) {
+  await writeStdout(formatOutput({ errors: result.errors }, args.format ?? 'json') + '\n');
 }
 
-process.exit(result.exitCode ?? 0);
+process.exitCode = result.exitCode ?? 0;
