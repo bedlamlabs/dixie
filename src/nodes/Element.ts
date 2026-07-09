@@ -6,7 +6,7 @@ import { NamedNodeMap } from '../collections/NamedNodeMap';
 import { DOMTokenList } from '../collections/DOMTokenList';
 import { HTMLCollection } from '../collections/HTMLCollection';
 import { CSSStyleDeclaration } from '../css/CSSStyleDeclaration';
-import { _getElementsByClassName, _getElementsByTagName } from './Document';
+import { _getElementsByClassName, _getElementsByTagName } from './TreeWalk';
 import { parseHTML } from '../parser/HTMLParser';
 import { serializeHTML } from '../parser/HTMLSerializer';
 import { Event } from '../events/Event';

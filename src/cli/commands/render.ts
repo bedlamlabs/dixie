@@ -294,8 +294,16 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       // Flush React's async scheduler (MessageChannel-deferred reconciliation).
       // Yields the event loop until the DOM element count stabilizes, allowing
       // React's first render pass and any immediate effects to complete.
-      // For non-SPA pages, this exits immediately (DOM already stable).
-      const mountSelector = config?.spa?.mountSelector ?? '#root > *';
+      // Only wait for a mount target that can actually appear: an explicitly
+      // configured spa.mountSelector is trusted as-is; the '#root > *'/'#app > *'
+      // default applies only when the page has that shell element. Pages with
+      // no SPA shell (static HTML) get no selector wait — otherwise the flush
+      // resets its stability counter every round and burns the whole budget.
+      let mountSelector = config?.spa?.mountSelector;
+      if (!mountSelector) {
+        if (ctx.document.querySelector('#root')) mountSelector = '#root > *';
+        else if (ctx.document.querySelector('#app')) mountSelector = '#app > *';
+      }
       const flushBudget = Math.max(500, scriptDeadline - Date.now());
       await flushReactRender(ctx.document, {
         timeoutMs: flushBudget,

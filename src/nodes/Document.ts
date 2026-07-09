@@ -376,74 +376,12 @@ export class Document extends Node {
   }
 }
 
-// ── Shared tree-walk helpers (used by both Document and Element) ──────
-
-/**
- * Returns a live HTMLCollection of elements matching all given class names,
- * scoped to the subtree rooted at `root`.
- */
-export function _getElementsByClassName(root: Node, className: string): HTMLCollection {
-  const requiredClasses = className.split(/\s+/).filter(c => c.length > 0);
-  let cached: Node[] | null = null;
-  let cachedVersion = -1;
-  return new HTMLCollection(() => {
-    const doc = (root as any).ownerDocument ?? root;
-    const ver = doc._mutationVersion ?? 0;
-    if (cached !== null && cachedVersion === ver) return cached;
-    const results: Node[] = [];
-    _walkElements(root, (el: Element) => {
-      if (requiredClasses.length === 0) return;
-      const elClasses = el.className.split(/\s+/);
-      if (requiredClasses.every(rc => elClasses.includes(rc))) {
-        results.push(el);
-      }
-    });
-    cached = results;
-    cachedVersion = ver;
-    return results;
-  });
-}
-
-/**
- * Returns a live HTMLCollection of elements matching the given tag name,
- * scoped to the subtree rooted at `root`. '*' matches all elements.
- * Tag comparison is case-insensitive.
- */
-export function _getElementsByTagName(root: Node, tagName: string): HTMLCollection {
-  const upper = tagName.toUpperCase();
-  const matchAll = upper === '*';
-  let cached: Node[] | null = null;
-  let cachedVersion = -1;
-  return new HTMLCollection(() => {
-    const doc = (root as any).ownerDocument ?? root;
-    const ver = doc._mutationVersion ?? 0;
-    if (cached !== null && cachedVersion === ver) return cached;
-    const results: Node[] = [];
-    _walkElements(root, (el: Element) => {
-      if (matchAll || el.tagName === upper) {
-        results.push(el);
-      }
-    });
-    cached = results;
-    cachedVersion = ver;
-    return results;
-  });
-}
-
-/** Depth-first walk of all Element descendants (excludes root). Iterative to avoid call-stack overhead. */
-function _walkElements(root: Node, callback: (el: Element) => void): void {
-  const stack: Node[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    if (node.nodeType === 1 /* ELEMENT_NODE */ && node !== root) {
-      callback(node as any);
-    }
-    const children = node._children;
-    for (let i = children.length - 1; i >= 0; i--) {
-      stack.push(children[i]);
-    }
-  }
-}
+// ── Shared tree-walk helpers ──────────────────────────────────────────
+// Canonical implementations live in TreeWalk.ts (mutation-version cached,
+// fragment-safe). Re-exported here for backward compatibility with older
+// import sites.
+import { _getElementsByClassName, _getElementsByTagName } from './TreeWalk';
+export { _getElementsByClassName, _getElementsByTagName };
 
 // ── NodeFilter constants ────────────────────────────────────────────────
 

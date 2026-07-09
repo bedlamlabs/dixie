@@ -7,12 +7,14 @@
 
 import { parseArgs, dispatch } from '../src/cli/index.ts';
 import { formatOutput } from '../src/cli/format.ts';
-import { once } from 'node:events';
 
 async function writeStdout(output: string): Promise<void> {
-  if (!process.stdout.write(output)) {
-    await once(process.stdout, 'drain');
-  }
+  // Wait for the write callback, not just 'drain': write() returning true only
+  // means the chunk fit under the highWaterMark, not that it was flushed to the
+  // pipe. The process.exit() below would truncate anything still buffered.
+  await new Promise<void>((resolve, reject) => {
+    process.stdout.write(output, (err) => (err ? reject(err) : resolve()));
+  });
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -26,4 +28,7 @@ if (result.output !== undefined) {
   await writeStdout(formatOutput({ errors: result.errors }, args.format ?? 'json') + '\n');
 }
 
-process.exitCode = result.exitCode ?? 0;
+// Immediate exit is deliberate: page scripts can leave live timers/intervals
+// (TimerController has no dispose yet) that would otherwise keep the process
+// alive until the parent's kill timeout. Output is fully flushed above.
+process.exit(result.exitCode ?? 0);

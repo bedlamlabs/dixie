@@ -9,7 +9,7 @@
     "./cli": "./src/cli/index.ts"
   },
   "bin": {
-    "dixie": "./bin/dixie.ts"
+    "dixie": "./bin/dixie.cjs"
   },
   "engines": {
     "node": ">=18"
@@ -37,5 +37,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/bedlamlabs/dixie.git"
+  },
+  "scripts": {
+    "build": "esbuild bin/dixie.ts --bundle --platform=node --format=esm --outfile=dist/dixie.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   }
 }

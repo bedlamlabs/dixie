@@ -1,11 +1,36 @@
 import type { ParsedArgs, CommandResult } from './types';
 
-const COMMANDS = new Set([
-  'render', 'query', 'run', 'bench', 'diff', 'a11y', 'css-audit',
-  'links', 'forms', 'text', 'structure', 'api', 'expected-calls',
-  'click', 'type', 'select', 'inspect', 'init', 'component',
-  'fidelity', 'lighthouse', 'har', 'redact', 'meta',
-]);
+// Literal import specifiers per command — bundlers cannot resolve
+// runtime-computed `import('./commands/' + name)` paths, which broke the
+// single-file build. Commands stay lazily loaded (fast startup).
+const COMMAND_LOADERS: Record<string, () => Promise<any>> = {
+  'render': () => import('./commands/render'),
+  'query': () => import('./commands/query'),
+  'run': () => import('./commands/run'),
+  'bench': () => import('./commands/bench'),
+  'diff': () => import('./commands/diff'),
+  'a11y': () => import('./commands/a11y'),
+  'css-audit': () => import('./commands/css-audit'),
+  'links': () => import('./commands/links'),
+  'forms': () => import('./commands/forms'),
+  'text': () => import('./commands/text'),
+  'structure': () => import('./commands/structure'),
+  'api': () => import('./commands/api'),
+  'expected-calls': () => import('./commands/expected-calls'),
+  'click': () => import('./commands/click'),
+  'type': () => import('./commands/type'),
+  'select': () => import('./commands/select'),
+  'inspect': () => import('./commands/inspect'),
+  'init': () => import('./commands/init'),
+  'component': () => import('./commands/component'),
+  'fidelity': () => import('./commands/fidelity'),
+  'lighthouse': () => import('./commands/lighthouse'),
+  'har': () => import('./commands/har'),
+  'redact': () => import('./commands/redact'),
+  'meta': () => import('./commands/meta'),
+};
+
+const COMMANDS = new Set(Object.keys(COMMAND_LOADERS));
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
@@ -134,9 +159,9 @@ export async function dispatch(args: ParsedArgs): Promise<CommandResult> {
     };
   }
 
-  // Dynamic import of command handler
+  // Load through COMMAND_LOADERS — literal specifiers, bundler-safe.
   try {
-    const mod = await import(`./commands/${args.command}`);
+    const mod = await COMMAND_LOADERS[args.command]();
     if (typeof mod.execute === 'function') {
       return await mod.execute(args);
     }

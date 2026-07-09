@@ -1,7 +1,7 @@
 import { Node } from './Node';
 import { Element } from './Element';
 import { Text } from './Text';
-import { _getElementsByClassName, _getElementsByTagName } from './Document';
+import { _getElementsByClassName, _getElementsByTagName } from './TreeWalk';
 import { HTMLCollection } from '../collections/HTMLCollection';
 import { NodeList } from './NodeList';
 import { parseSelector, querySelectorAllElements, querySelectorFirstElement } from '../selectors';
