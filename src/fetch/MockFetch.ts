@@ -147,6 +147,23 @@ export class MockFetch {
     this._defaultResponse = null;
   }
 
+  /**
+   * True when a registered route or passthrough matches this URL.
+   * Used by the VM context to decide whether an in-page fetch should be
+   * served by this MockFetch or fall through to LiveFetch (real network).
+   */
+  hasMatch(url: string): boolean {
+    if (this._passthroughMap.size > 0
+      && this._findLongestMatchSorted(url, this._getPassthroughSorted()) !== null) {
+      return true;
+    }
+    if (this._registry.size > 0) {
+      if (this._registry.has(url)) return true;
+      if (this._findLongestMatchSorted(url, this._getRegistrySorted()) !== null) return true;
+    }
+    return false;
+  }
+
   // ─── Core fetch ──────────────────────────────────────────────────
 
   async fetch(input: string | DixieRequest, init?: DixieRequestInit): Promise<DixieResponse> {

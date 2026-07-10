@@ -15,6 +15,7 @@ import { Screen } from './Screen';
 import { EventSourceStub } from '../network/sse';
 import { WebSocketStub } from '../network/websocket';
 import { DOMParser as DOMParserStub } from './DOMParser';
+import { TimerController, type TimerHandle } from './Timers';
 
 export { EventTarget };
 
@@ -23,6 +24,12 @@ export interface WindowOptions {
   innerWidth?: number;
   innerHeight?: number;
   devicePixelRatio?: number;
+  /**
+   * Timer controller that tracks all timers scheduled through this window.
+   * When omitted, the window creates its own controller. Injected by
+   * DixieEnvironment so env.timers.dispose() clears window-scheduled timers.
+   */
+  timers?: TimerController;
 }
 
 export class Window extends EventTarget {
@@ -53,8 +60,15 @@ export class Window extends EventTarget {
   readonly closed: boolean = false;
   readonly frameElement: null = null;
 
+  // ── Timers ────────────────────────────────────────────────────────
+
+  /** Tracks every timer scheduled through this window so dispose() can clear them. */
+  readonly _timers: TimerController;
+
   constructor(options?: WindowOptions) {
     super();
+
+    this._timers = options?.timers ?? new TimerController();
 
     this.location = new Location(options?.url ?? 'about:blank');
 
@@ -177,32 +191,32 @@ export class Window extends EventTarget {
     return Buffer.from(data, 'binary').toString('base64');
   }
 
-  // ── Timers (delegated to global — overridden by DixieEnvironment) ──
+  // ── Timers (tracked by TimerController so dispose() can clear them) ──
 
-  setTimeout(fn: (...args: any[]) => void, delay?: number, ...args: any[]): ReturnType<typeof globalThis.setTimeout> {
-    return globalThis.setTimeout(fn, delay, ...args);
+  setTimeout(fn: (...args: any[]) => void, delay?: number, ...args: any[]): TimerHandle {
+    return this._timers.setTimeout(fn, delay ?? 0, ...args);
   }
 
-  clearTimeout(id: ReturnType<typeof globalThis.setTimeout>): void {
-    globalThis.clearTimeout(id);
+  clearTimeout(id: number | TimerHandle): void {
+    this._timers.clearTimeout(id);
   }
 
-  setInterval(fn: (...args: any[]) => void, delay?: number, ...args: any[]): ReturnType<typeof globalThis.setInterval> {
-    return globalThis.setInterval(fn, delay, ...args);
+  setInterval(fn: (...args: any[]) => void, delay?: number, ...args: any[]): TimerHandle {
+    return this._timers.setInterval(fn, delay ?? 0, ...args);
   }
 
-  clearInterval(id: ReturnType<typeof globalThis.setInterval>): void {
-    globalThis.clearInterval(id);
+  clearInterval(id: number | TimerHandle): void {
+    this._timers.clearInterval(id);
   }
 
   // ── Animation frames ──────────────────────────────────────────────
 
-  requestAnimationFrame(callback: (time: number) => void): ReturnType<typeof globalThis.setTimeout> {
-    return globalThis.setTimeout(() => callback(Date.now()), 16);
+  requestAnimationFrame(callback: (time: number) => void): number {
+    return this._timers.requestAnimationFrame(callback);
   }
 
-  cancelAnimationFrame(id: ReturnType<typeof globalThis.setTimeout>): void {
-    globalThis.clearTimeout(id);
+  cancelAnimationFrame(id: number): void {
+    this._timers.cancelAnimationFrame(id);
   }
 
   // ── Selection ─────────────────────────────────────────────────────

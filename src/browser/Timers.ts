@@ -34,7 +34,7 @@ const MAX_RUN_ALL_ITERATIONS = 1000;
  * Node.js internals (undici/fetch) call .unref() on setTimeout return values.
  * Without these stubs, native fetch crashes inside a Dixie environment.
  */
-interface TimerHandle {
+export interface TimerHandle {
   ref(): TimerHandle;
   unref(): TimerHandle;
   hasRef(): boolean;
@@ -75,6 +75,9 @@ export class TimerController {
   private _clearedDuringExecution: Set<number> = new Set();
   private _isExecutingCallback: boolean = false;
 
+  // Once disposed, no new timers are scheduled and all live handles are cleared.
+  private _disposed: boolean = false;
+
   // ── Mode switching ──────────────────────────────────────────────────
 
   /**
@@ -102,6 +105,12 @@ export class TimerController {
   setTimeout(callback: (...args: unknown[]) => void, delay: number = 0, ...args: unknown[]): TimerHandle {
     const id = this._nextId++;
 
+    // Disposed controllers refuse new work — return an inert handle so callers
+    // that store/clear the return value don't crash.
+    if (this._disposed) {
+      return _wrapTimerHandle(id);
+    }
+
     if (this._mode === 'real') {
       const handle = _nativeSetTimeout(() => {
         this._realHandles.delete(id as number);
@@ -126,27 +135,35 @@ export class TimerController {
   }
 
   clearTimeout(id: number | TimerHandle): void {
+    // Callers may pass back the TimerHandle object returned by setTimeout —
+    // coerce it to its numeric ID (via Symbol.toPrimitive) for map/queue lookups.
+    const key = typeof id === 'number' ? id : Number(id);
+
     if (this._mode === 'real') {
-      const handle = this._realHandles.get(id as number);
+      const handle = this._realHandles.get(key);
       if (handle !== undefined) {
         _nativeClearTimeout(handle);
-        this._realHandles.delete(id as number);
+        this._realHandles.delete(key);
       }
       return;
     }
 
     // Fake mode — remove from pending queue (no-op if ID not found)
-    this._pending = this._pending.filter(t => t.id !== id);
+    this._pending = this._pending.filter(t => t.id !== key);
 
     // Track if cleared during callback execution (for interval self-clearing)
     if (this._isExecutingCallback) {
-      this._clearedDuringExecution.add(id as number);
+      this._clearedDuringExecution.add(key);
     }
   }
 
   setInterval(callback: (...args: unknown[]) => void, delay: number = 0, ...args: unknown[]): TimerHandle {
     const id = this._nextId++;
     const period = Math.max(1, delay); // intervals with 0 delay clamp to 1ms
+
+    if (this._disposed) {
+      return _wrapTimerHandle(id);
+    }
 
     if (this._mode === 'real') {
       const handle = _nativeSetInterval(() => {
@@ -177,6 +194,10 @@ export class TimerController {
 
   requestAnimationFrame(callback: (timestamp: number) => void): number {
     const id = this._nextId++;
+
+    if (this._disposed) {
+      return id;
+    }
 
     if (this._mode === 'real') {
       // Node.js has no native rAF — simulate with setTimeout(16ms)
@@ -320,6 +341,27 @@ export class TimerController {
     this._pending = [];
     this._fakeNow = 0;
     this._registrationCounter = 0;
+  }
+
+  /**
+   * Permanently dispose the controller: clears every live real-mode handle
+   * and all pending fake timers, and refuses any timers scheduled afterwards.
+   * After dispose() the controller holds nothing that can keep the Node.js
+   * event loop (and therefore the CLI process) alive.
+   */
+  dispose(): void {
+    this._disposed = true;
+
+    for (const handle of this._realHandles.values()) {
+      _nativeClearTimeout(handle);
+    }
+    this._realHandles.clear();
+    this._pending = [];
+  }
+
+  /** True once dispose() has been called. */
+  get disposed(): boolean {
+    return this._disposed;
   }
 
   // ── Internal helpers ────────────────────────────────────────────────

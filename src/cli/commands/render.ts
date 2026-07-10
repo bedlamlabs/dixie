@@ -38,6 +38,14 @@ export interface RenderResult {
   errors: Array<{ code: string; message: string }>;
   /** Flush the event loop so React can settle after interactions (click, type). */
   flush: (options?: { timeoutMs?: number; stableRounds?: number; waitForSelector?: string }) => Promise<{ stable: boolean; elementCount: number; rounds: number }>;
+  /** The underlying VM context (environment, mockFetch, timers). */
+  context: import('../../execution/vm-context').VmContext;
+  /**
+   * Dispose the render context: clears every live page-scheduled timer so
+   * the process can exit once the result has been consumed. Call after the
+   * last interaction/flush — timers no longer fire afterwards.
+   */
+  dispose: () => void;
 }
 
 export async function renderUrl(url: string, options?: RenderOptions): Promise<RenderResult> {
@@ -357,6 +365,8 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       waitForSelector: opts?.waitForSelector,
       mockFetch: ctx.mockFetch,
     }),
+    context: ctx,
+    dispose: () => ctx.dispose(),
   };
 
   return result;
@@ -381,6 +391,10 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
 
     const pageContent = collectPage(result.document, result.meta, result.errors);
     const output = formatOutput(pageContent, args.format);
+
+    // The page has been collected — clear any timers/intervals the page's
+    // scripts left behind so they can't keep the CLI process alive.
+    result.dispose();
 
     return { exitCode: 0, output, data: result };
   } catch (err: any) {

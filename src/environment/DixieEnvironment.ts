@@ -229,11 +229,14 @@ export function createDixieEnvironment(options?: DixieEnvironmentOptions): Dixie
   // 1. Create the Document
   const document = new Document();
 
-  // 2. Create the Window
+  // 2. Create the timer controller + Window (window timers route through the
+  // controller so env.timers.dispose() clears everything the page scheduled)
+  const timers = new TimerController();
   const window = new Window({
     url,
     innerWidth: width,
     innerHeight: height,
+    timers,
   });
 
   // 3. Wire cross-references — also populate window with DOM constructors so
@@ -258,9 +261,6 @@ export function createDixieEnvironment(options?: DixieEnvironmentOptions): Dixie
   // 5. Create storage instances
   const localStorage = createStorage();
   const sessionStorage = createStorage();
-
-  // 6. Create timer controller
-  const timers = new TimerController();
 
   // ── State tracking ──────────────────────────────────────────────────
 
@@ -363,6 +363,10 @@ export function createDixieEnvironment(options?: DixieEnvironmentOptions): Dixie
 
       // Reset first to clean up
       env.reset();
+
+      // Permanently dispose timers — nothing scheduled by this environment
+      // may keep the event loop alive after destroy()
+      timers.dispose();
 
       // Mark as destroyed
       destroyed = true;

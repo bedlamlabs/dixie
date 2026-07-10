@@ -5074,6 +5074,348 @@ var init_DOMParser = __esm({
   }
 });
 
+// src/browser/Timers.ts
+function _wrapTimerHandle(id) {
+  return {
+    ref() {
+      return this;
+    },
+    unref() {
+      return this;
+    },
+    hasRef() {
+      return true;
+    },
+    [Symbol.toPrimitive]() {
+      return id;
+    }
+  };
+}
+var RAF_FRAME_TIME, MAX_RUN_ALL_ITERATIONS, _nativeSetTimeout, _nativeClearTimeout, _nativeSetInterval, _nativeClearInterval, TimerController;
+var init_Timers = __esm({
+  "src/browser/Timers.ts"() {
+    "use strict";
+    RAF_FRAME_TIME = 16;
+    MAX_RUN_ALL_ITERATIONS = 1e3;
+    _nativeSetTimeout = globalThis.setTimeout;
+    _nativeClearTimeout = globalThis.clearTimeout;
+    _nativeSetInterval = globalThis.setInterval;
+    _nativeClearInterval = globalThis.clearInterval;
+    TimerController = class {
+      _mode = "real";
+      _nextId = 1;
+      _registrationCounter = 0;
+      _fakeNow = 0;
+      // Fake mode queue — kept sorted by (scheduledTime, registrationOrder)
+      _pending = [];
+      // Real mode handle tracking (our ID -> native handle)
+      _realHandles = /* @__PURE__ */ new Map();
+      // Set of IDs cleared during the current callback execution (for interval self-clearing)
+      _clearedDuringExecution = /* @__PURE__ */ new Set();
+      _isExecutingCallback = false;
+      // Once disposed, no new timers are scheduled and all live handles are cleared.
+      _disposed = false;
+      // ── Mode switching ──────────────────────────────────────────────────
+      /**
+       * Switch to fake timer mode. Resets fake time to 0 and clears the queue.
+       */
+      useFakeTimers() {
+        this._mode = "fake";
+        this._fakeNow = 0;
+        this._pending = [];
+        this._registrationCounter = 0;
+      }
+      /**
+       * Switch back to real timer mode. Clears all pending fake timers.
+       */
+      useRealTimers() {
+        this._mode = "real";
+        this._pending = [];
+        this._fakeNow = 0;
+        this._registrationCounter = 0;
+      }
+      // ── Timer creation ──────────────────────────────────────────────────
+      setTimeout(callback, delay = 0, ...args) {
+        const id = this._nextId++;
+        if (this._disposed) {
+          return _wrapTimerHandle(id);
+        }
+        if (this._mode === "real") {
+          const handle = _nativeSetTimeout(() => {
+            this._realHandles.delete(id);
+            callback(...args);
+          }, delay);
+          this._realHandles.set(id, handle);
+          return _wrapTimerHandle(id);
+        }
+        this._pending.push({
+          id,
+          callback,
+          args,
+          scheduledTime: this._fakeNow + Math.max(0, delay),
+          interval: null,
+          type: "timeout",
+          registrationOrder: this._registrationCounter++
+        });
+        this._sortPending();
+        return _wrapTimerHandle(id);
+      }
+      clearTimeout(id) {
+        const key = typeof id === "number" ? id : Number(id);
+        if (this._mode === "real") {
+          const handle = this._realHandles.get(key);
+          if (handle !== void 0) {
+            _nativeClearTimeout(handle);
+            this._realHandles.delete(key);
+          }
+          return;
+        }
+        this._pending = this._pending.filter((t) => t.id !== key);
+        if (this._isExecutingCallback) {
+          this._clearedDuringExecution.add(key);
+        }
+      }
+      setInterval(callback, delay = 0, ...args) {
+        const id = this._nextId++;
+        const period = Math.max(1, delay);
+        if (this._disposed) {
+          return _wrapTimerHandle(id);
+        }
+        if (this._mode === "real") {
+          const handle = _nativeSetInterval(() => {
+            callback(...args);
+          }, delay);
+          this._realHandles.set(id, handle);
+          return _wrapTimerHandle(id);
+        }
+        this._pending.push({
+          id,
+          callback,
+          args,
+          scheduledTime: this._fakeNow + period,
+          interval: period,
+          type: "interval",
+          registrationOrder: this._registrationCounter++
+        });
+        this._sortPending();
+        return _wrapTimerHandle(id);
+      }
+      clearInterval(id) {
+        this.clearTimeout(id);
+      }
+      requestAnimationFrame(callback) {
+        const id = this._nextId++;
+        if (this._disposed) {
+          return id;
+        }
+        if (this._mode === "real") {
+          const handle = _nativeSetTimeout(() => {
+            this._realHandles.delete(id);
+            callback(Date.now());
+          }, RAF_FRAME_TIME);
+          this._realHandles.set(id, handle);
+          return id;
+        }
+        const wrappedCallback = () => {
+          callback(this._fakeNow);
+        };
+        this._pending.push({
+          id,
+          callback: wrappedCallback,
+          args: [],
+          scheduledTime: this._fakeNow + RAF_FRAME_TIME,
+          interval: null,
+          type: "raf",
+          registrationOrder: this._registrationCounter++
+        });
+        this._sortPending();
+        return id;
+      }
+      cancelAnimationFrame(id) {
+        this.clearTimeout(id);
+      }
+      // ── Fake timer control ──────────────────────────────────────────────
+      /**
+       * Advance fake time by `ms` milliseconds, executing all callbacks
+       * whose scheduled time falls within [now, now + ms].
+       */
+      tick(ms) {
+        this._assertFakeMode("tick");
+        const targetTime = this._fakeNow + ms;
+        this._advanceTo(targetTime);
+      }
+      /**
+       * Async version of tick — flushes microtasks between each callback execution.
+       */
+      async tickAsync(ms) {
+        this._assertFakeMode("tickAsync");
+        const targetTime = this._fakeNow + ms;
+        await this._advanceToAsync(targetTime);
+      }
+      /**
+       * Advance fake time to an absolute timestamp. No-op if timestamp is in
+       * the past (before current fake time).
+       */
+      advanceTo(timestamp) {
+        this._assertFakeMode("advanceTo");
+        if (timestamp <= this._fakeNow) return;
+        this._advanceTo(timestamp);
+      }
+      /**
+       * Execute ALL pending timers. Intervals will re-schedule, so this caps
+       * at MAX_RUN_ALL_ITERATIONS to prevent infinite loops.
+       */
+      runAll() {
+        this._assertFakeMode("runAll");
+        let iterations = 0;
+        while (this._pending.length > 0 && iterations < MAX_RUN_ALL_ITERATIONS) {
+          const next = this._pending[0];
+          this._fakeNow = next.scheduledTime;
+          this._executeNext();
+          iterations++;
+        }
+        if (iterations >= MAX_RUN_ALL_ITERATIONS && this._pending.length > 0) {
+          throw new Error(
+            `runAll() exceeded ${MAX_RUN_ALL_ITERATIONS} iterations. Likely an interval that never gets cleared. ${this._pending.length} timers still pending.`
+          );
+        }
+      }
+      /**
+       * Async version of runAll — flushes microtasks between each callback.
+       */
+      async runAllAsync() {
+        this._assertFakeMode("runAllAsync");
+        let iterations = 0;
+        while (this._pending.length > 0 && iterations < MAX_RUN_ALL_ITERATIONS) {
+          const next = this._pending[0];
+          this._fakeNow = next.scheduledTime;
+          this._executeNext();
+          await this._flushMicrotasks();
+          iterations++;
+        }
+        if (iterations >= MAX_RUN_ALL_ITERATIONS && this._pending.length > 0) {
+          throw new Error(
+            `runAllAsync() exceeded ${MAX_RUN_ALL_ITERATIONS} iterations. Likely an interval that never gets cleared. ${this._pending.length} timers still pending.`
+          );
+        }
+      }
+      /**
+       * Return the number of pending timers.
+       */
+      getTimerCount() {
+        if (this._mode === "fake") {
+          return this._pending.length;
+        }
+        return this._realHandles.size;
+      }
+      /**
+       * Current time: returns fake time in fake mode, Date.now() in real mode.
+       */
+      now() {
+        return this._mode === "fake" ? this._fakeNow : Date.now();
+      }
+      /**
+       * Clear all pending timers and reset fake time to 0.
+       */
+      reset() {
+        for (const handle of this._realHandles.values()) {
+          _nativeClearTimeout(handle);
+        }
+        this._realHandles.clear();
+        this._pending = [];
+        this._fakeNow = 0;
+        this._registrationCounter = 0;
+      }
+      /**
+       * Permanently dispose the controller: clears every live real-mode handle
+       * and all pending fake timers, and refuses any timers scheduled afterwards.
+       * After dispose() the controller holds nothing that can keep the Node.js
+       * event loop (and therefore the CLI process) alive.
+       */
+      dispose() {
+        this._disposed = true;
+        for (const handle of this._realHandles.values()) {
+          _nativeClearTimeout(handle);
+        }
+        this._realHandles.clear();
+        this._pending = [];
+      }
+      /** True once dispose() has been called. */
+      get disposed() {
+        return this._disposed;
+      }
+      // ── Internal helpers ────────────────────────────────────────────────
+      _assertFakeMode(method) {
+        if (this._mode !== "fake") {
+          throw new Error(
+            `${method}() can only be called in fake timer mode. Call useFakeTimers() first.`
+          );
+        }
+      }
+      _sortPending() {
+        this._pending.sort((a, b) => {
+          if (a.scheduledTime !== b.scheduledTime) {
+            return a.scheduledTime - b.scheduledTime;
+          }
+          return a.registrationOrder - b.registrationOrder;
+        });
+      }
+      /**
+       * Advance fake time to targetTime, executing callbacks in order.
+       */
+      _advanceTo(targetTime) {
+        while (this._pending.length > 0) {
+          const next = this._pending[0];
+          if (next.scheduledTime > targetTime) break;
+          this._fakeNow = next.scheduledTime;
+          this._executeNext();
+        }
+        this._fakeNow = targetTime;
+      }
+      /**
+       * Async version of _advanceTo — flushes microtasks between callbacks.
+       */
+      async _advanceToAsync(targetTime) {
+        while (this._pending.length > 0) {
+          const next = this._pending[0];
+          if (next.scheduledTime > targetTime) break;
+          this._fakeNow = next.scheduledTime;
+          this._executeNext();
+          await this._flushMicrotasks();
+        }
+        this._fakeNow = targetTime;
+      }
+      /**
+       * Shift and execute the first pending timer. If it's an interval,
+       * re-schedule it unless it was cleared during its own callback.
+       */
+      _executeNext() {
+        if (this._pending.length === 0) return;
+        const timer = this._pending.shift();
+        this._isExecutingCallback = true;
+        this._clearedDuringExecution.clear();
+        try {
+          timer.callback(...timer.args);
+        } finally {
+          this._isExecutingCallback = false;
+        }
+        if (timer.interval !== null && !this._clearedDuringExecution.has(timer.id)) {
+          this._pending.push({
+            ...timer,
+            scheduledTime: this._fakeNow + timer.interval,
+            registrationOrder: this._registrationCounter++
+          });
+          this._sortPending();
+        }
+        this._clearedDuringExecution.clear();
+      }
+      async _flushMicrotasks() {
+        await Promise.resolve();
+      }
+    };
+  }
+});
+
 // src/browser/Window.ts
 var Window;
 var init_Window = __esm({
@@ -5087,6 +5429,7 @@ var init_Window = __esm({
     init_sse();
     init_websocket();
     init_DOMParser();
+    init_Timers();
     Window = class extends EventTarget {
       // ── Sub-objects ────────────────────────────────────────────────────
       document = null;
@@ -5107,8 +5450,12 @@ var init_Window = __esm({
       name = "";
       closed = false;
       frameElement = null;
+      // ── Timers ────────────────────────────────────────────────────────
+      /** Tracks every timer scheduled through this window so dispose() can clear them. */
+      _timers;
       constructor(options) {
         super();
+        this._timers = options?.timers ?? new TimerController();
         this.location = new Location(options?.url ?? "about:blank");
         this.history = new History();
         this.history._window = this;
@@ -5199,25 +5546,25 @@ var init_Window = __esm({
       btoa(data) {
         return Buffer.from(data, "binary").toString("base64");
       }
-      // ── Timers (delegated to global — overridden by DixieEnvironment) ──
+      // ── Timers (tracked by TimerController so dispose() can clear them) ──
       setTimeout(fn, delay, ...args) {
-        return globalThis.setTimeout(fn, delay, ...args);
+        return this._timers.setTimeout(fn, delay ?? 0, ...args);
       }
       clearTimeout(id) {
-        globalThis.clearTimeout(id);
+        this._timers.clearTimeout(id);
       }
       setInterval(fn, delay, ...args) {
-        return globalThis.setInterval(fn, delay, ...args);
+        return this._timers.setInterval(fn, delay ?? 0, ...args);
       }
       clearInterval(id) {
-        globalThis.clearInterval(id);
+        this._timers.clearInterval(id);
       }
       // ── Animation frames ──────────────────────────────────────────────
       requestAnimationFrame(callback) {
-        return globalThis.setTimeout(() => callback(Date.now()), 16);
+        return this._timers.requestAnimationFrame(callback);
       }
       cancelAnimationFrame(id) {
-        globalThis.clearTimeout(id);
+        this._timers.cancelAnimationFrame(id);
       }
       // ── Selection ─────────────────────────────────────────────────────
       getSelection() {
@@ -5412,318 +5759,6 @@ var init_Storage = __esm({
   }
 });
 
-// src/browser/Timers.ts
-function _wrapTimerHandle(id) {
-  return {
-    ref() {
-      return this;
-    },
-    unref() {
-      return this;
-    },
-    hasRef() {
-      return true;
-    },
-    [Symbol.toPrimitive]() {
-      return id;
-    }
-  };
-}
-var RAF_FRAME_TIME, MAX_RUN_ALL_ITERATIONS, _nativeSetTimeout, _nativeClearTimeout, _nativeSetInterval, _nativeClearInterval, TimerController;
-var init_Timers = __esm({
-  "src/browser/Timers.ts"() {
-    "use strict";
-    RAF_FRAME_TIME = 16;
-    MAX_RUN_ALL_ITERATIONS = 1e3;
-    _nativeSetTimeout = globalThis.setTimeout;
-    _nativeClearTimeout = globalThis.clearTimeout;
-    _nativeSetInterval = globalThis.setInterval;
-    _nativeClearInterval = globalThis.clearInterval;
-    TimerController = class {
-      _mode = "real";
-      _nextId = 1;
-      _registrationCounter = 0;
-      _fakeNow = 0;
-      // Fake mode queue — kept sorted by (scheduledTime, registrationOrder)
-      _pending = [];
-      // Real mode handle tracking (our ID -> native handle)
-      _realHandles = /* @__PURE__ */ new Map();
-      // Set of IDs cleared during the current callback execution (for interval self-clearing)
-      _clearedDuringExecution = /* @__PURE__ */ new Set();
-      _isExecutingCallback = false;
-      // ── Mode switching ──────────────────────────────────────────────────
-      /**
-       * Switch to fake timer mode. Resets fake time to 0 and clears the queue.
-       */
-      useFakeTimers() {
-        this._mode = "fake";
-        this._fakeNow = 0;
-        this._pending = [];
-        this._registrationCounter = 0;
-      }
-      /**
-       * Switch back to real timer mode. Clears all pending fake timers.
-       */
-      useRealTimers() {
-        this._mode = "real";
-        this._pending = [];
-        this._fakeNow = 0;
-        this._registrationCounter = 0;
-      }
-      // ── Timer creation ──────────────────────────────────────────────────
-      setTimeout(callback, delay = 0, ...args) {
-        const id = this._nextId++;
-        if (this._mode === "real") {
-          const handle = _nativeSetTimeout(() => {
-            this._realHandles.delete(id);
-            callback(...args);
-          }, delay);
-          this._realHandles.set(id, handle);
-          return _wrapTimerHandle(id);
-        }
-        this._pending.push({
-          id,
-          callback,
-          args,
-          scheduledTime: this._fakeNow + Math.max(0, delay),
-          interval: null,
-          type: "timeout",
-          registrationOrder: this._registrationCounter++
-        });
-        this._sortPending();
-        return _wrapTimerHandle(id);
-      }
-      clearTimeout(id) {
-        if (this._mode === "real") {
-          const handle = this._realHandles.get(id);
-          if (handle !== void 0) {
-            _nativeClearTimeout(handle);
-            this._realHandles.delete(id);
-          }
-          return;
-        }
-        this._pending = this._pending.filter((t) => t.id !== id);
-        if (this._isExecutingCallback) {
-          this._clearedDuringExecution.add(id);
-        }
-      }
-      setInterval(callback, delay = 0, ...args) {
-        const id = this._nextId++;
-        const period = Math.max(1, delay);
-        if (this._mode === "real") {
-          const handle = _nativeSetInterval(() => {
-            callback(...args);
-          }, delay);
-          this._realHandles.set(id, handle);
-          return _wrapTimerHandle(id);
-        }
-        this._pending.push({
-          id,
-          callback,
-          args,
-          scheduledTime: this._fakeNow + period,
-          interval: period,
-          type: "interval",
-          registrationOrder: this._registrationCounter++
-        });
-        this._sortPending();
-        return _wrapTimerHandle(id);
-      }
-      clearInterval(id) {
-        this.clearTimeout(id);
-      }
-      requestAnimationFrame(callback) {
-        const id = this._nextId++;
-        if (this._mode === "real") {
-          const handle = _nativeSetTimeout(() => {
-            this._realHandles.delete(id);
-            callback(Date.now());
-          }, RAF_FRAME_TIME);
-          this._realHandles.set(id, handle);
-          return id;
-        }
-        const wrappedCallback = () => {
-          callback(this._fakeNow);
-        };
-        this._pending.push({
-          id,
-          callback: wrappedCallback,
-          args: [],
-          scheduledTime: this._fakeNow + RAF_FRAME_TIME,
-          interval: null,
-          type: "raf",
-          registrationOrder: this._registrationCounter++
-        });
-        this._sortPending();
-        return id;
-      }
-      cancelAnimationFrame(id) {
-        this.clearTimeout(id);
-      }
-      // ── Fake timer control ──────────────────────────────────────────────
-      /**
-       * Advance fake time by `ms` milliseconds, executing all callbacks
-       * whose scheduled time falls within [now, now + ms].
-       */
-      tick(ms) {
-        this._assertFakeMode("tick");
-        const targetTime = this._fakeNow + ms;
-        this._advanceTo(targetTime);
-      }
-      /**
-       * Async version of tick — flushes microtasks between each callback execution.
-       */
-      async tickAsync(ms) {
-        this._assertFakeMode("tickAsync");
-        const targetTime = this._fakeNow + ms;
-        await this._advanceToAsync(targetTime);
-      }
-      /**
-       * Advance fake time to an absolute timestamp. No-op if timestamp is in
-       * the past (before current fake time).
-       */
-      advanceTo(timestamp) {
-        this._assertFakeMode("advanceTo");
-        if (timestamp <= this._fakeNow) return;
-        this._advanceTo(timestamp);
-      }
-      /**
-       * Execute ALL pending timers. Intervals will re-schedule, so this caps
-       * at MAX_RUN_ALL_ITERATIONS to prevent infinite loops.
-       */
-      runAll() {
-        this._assertFakeMode("runAll");
-        let iterations = 0;
-        while (this._pending.length > 0 && iterations < MAX_RUN_ALL_ITERATIONS) {
-          const next = this._pending[0];
-          this._fakeNow = next.scheduledTime;
-          this._executeNext();
-          iterations++;
-        }
-        if (iterations >= MAX_RUN_ALL_ITERATIONS && this._pending.length > 0) {
-          throw new Error(
-            `runAll() exceeded ${MAX_RUN_ALL_ITERATIONS} iterations. Likely an interval that never gets cleared. ${this._pending.length} timers still pending.`
-          );
-        }
-      }
-      /**
-       * Async version of runAll — flushes microtasks between each callback.
-       */
-      async runAllAsync() {
-        this._assertFakeMode("runAllAsync");
-        let iterations = 0;
-        while (this._pending.length > 0 && iterations < MAX_RUN_ALL_ITERATIONS) {
-          const next = this._pending[0];
-          this._fakeNow = next.scheduledTime;
-          this._executeNext();
-          await this._flushMicrotasks();
-          iterations++;
-        }
-        if (iterations >= MAX_RUN_ALL_ITERATIONS && this._pending.length > 0) {
-          throw new Error(
-            `runAllAsync() exceeded ${MAX_RUN_ALL_ITERATIONS} iterations. Likely an interval that never gets cleared. ${this._pending.length} timers still pending.`
-          );
-        }
-      }
-      /**
-       * Return the number of pending timers.
-       */
-      getTimerCount() {
-        if (this._mode === "fake") {
-          return this._pending.length;
-        }
-        return this._realHandles.size;
-      }
-      /**
-       * Current time: returns fake time in fake mode, Date.now() in real mode.
-       */
-      now() {
-        return this._mode === "fake" ? this._fakeNow : Date.now();
-      }
-      /**
-       * Clear all pending timers and reset fake time to 0.
-       */
-      reset() {
-        for (const handle of this._realHandles.values()) {
-          _nativeClearTimeout(handle);
-        }
-        this._realHandles.clear();
-        this._pending = [];
-        this._fakeNow = 0;
-        this._registrationCounter = 0;
-      }
-      // ── Internal helpers ────────────────────────────────────────────────
-      _assertFakeMode(method) {
-        if (this._mode !== "fake") {
-          throw new Error(
-            `${method}() can only be called in fake timer mode. Call useFakeTimers() first.`
-          );
-        }
-      }
-      _sortPending() {
-        this._pending.sort((a, b) => {
-          if (a.scheduledTime !== b.scheduledTime) {
-            return a.scheduledTime - b.scheduledTime;
-          }
-          return a.registrationOrder - b.registrationOrder;
-        });
-      }
-      /**
-       * Advance fake time to targetTime, executing callbacks in order.
-       */
-      _advanceTo(targetTime) {
-        while (this._pending.length > 0) {
-          const next = this._pending[0];
-          if (next.scheduledTime > targetTime) break;
-          this._fakeNow = next.scheduledTime;
-          this._executeNext();
-        }
-        this._fakeNow = targetTime;
-      }
-      /**
-       * Async version of _advanceTo — flushes microtasks between callbacks.
-       */
-      async _advanceToAsync(targetTime) {
-        while (this._pending.length > 0) {
-          const next = this._pending[0];
-          if (next.scheduledTime > targetTime) break;
-          this._fakeNow = next.scheduledTime;
-          this._executeNext();
-          await this._flushMicrotasks();
-        }
-        this._fakeNow = targetTime;
-      }
-      /**
-       * Shift and execute the first pending timer. If it's an interval,
-       * re-schedule it unless it was cleared during its own callback.
-       */
-      _executeNext() {
-        if (this._pending.length === 0) return;
-        const timer = this._pending.shift();
-        this._isExecutingCallback = true;
-        this._clearedDuringExecution.clear();
-        try {
-          timer.callback(...timer.args);
-        } finally {
-          this._isExecutingCallback = false;
-        }
-        if (timer.interval !== null && !this._clearedDuringExecution.has(timer.id)) {
-          this._pending.push({
-            ...timer,
-            scheduledTime: this._fakeNow + timer.interval,
-            registrationOrder: this._registrationCounter++
-          });
-          this._sortPending();
-        }
-        this._clearedDuringExecution.clear();
-      }
-      async _flushMicrotasks() {
-        await Promise.resolve();
-      }
-    };
-  }
-});
-
 // src/css/index.ts
 var init_css = __esm({
   "src/css/index.ts"() {
@@ -5891,10 +5926,12 @@ function createDixieEnvironment(options) {
   const height = options?.height ?? 768;
   const userAgent = options?.userAgent;
   const document = new Document();
+  const timers = new TimerController();
   const window = new Window({
     url,
     innerWidth: width,
-    innerHeight: height
+    innerHeight: height,
+    timers
   });
   Object.assign(window, STATIC_GLOBALS);
   window.document = document;
@@ -5910,7 +5947,6 @@ function createDixieEnvironment(options) {
   }
   const localStorage = createStorage();
   const sessionStorage = createStorage();
-  const timers = new TimerController();
   let destroyed = false;
   const savedOriginals = /* @__PURE__ */ new Map();
   function assertNotDestroyed() {
@@ -5985,6 +6021,7 @@ function createDixieEnvironment(options) {
     destroy() {
       assertNotDestroyed();
       env.reset();
+      timers.dispose();
       destroyed = true;
     },
     installGlobals(target) {
@@ -7186,6 +7223,21 @@ var init_MockFetch = __esm({
         this.clearRequests();
         this.clearPassthrough();
         this._defaultResponse = null;
+      }
+      /**
+       * True when a registered route or passthrough matches this URL.
+       * Used by the VM context to decide whether an in-page fetch should be
+       * served by this MockFetch or fall through to LiveFetch (real network).
+       */
+      hasMatch(url) {
+        if (this._passthroughMap.size > 0 && this._findLongestMatchSorted(url, this._getPassthroughSorted()) !== null) {
+          return true;
+        }
+        if (this._registry.size > 0) {
+          if (this._registry.has(url)) return true;
+          if (this._findLongestMatchSorted(url, this._getRegistrySorted()) !== null) return true;
+        }
+        return false;
       }
       // ─── Core fetch ──────────────────────────────────────────────────
       async fetch(input, init) {
@@ -9245,21 +9297,49 @@ function createVmContext(envOrOptions) {
   }
   const win = env.window;
   const mockFetch = new MockFetch();
+  let effectiveFetch;
+  if (liveFetch) {
+    const live = liveFetch;
+    effectiveFetch = (input, init) => {
+      const reqUrl = typeof input === "string" ? input : input?.url ?? String(input);
+      return mockFetch.hasMatch(reqUrl) ? mockFetch.fetch(input, init) : live.fetch(input, init);
+    };
+  } else {
+    effectiveFetch = (input, init) => mockFetch.fetch(input, init);
+  }
+  const pageFetch = harRecorder ? async (input, init) => {
+    const start = performance.now();
+    const response = await effectiveFetch(input, init);
+    const durationMs = performance.now() - start;
+    const clone = response.clone();
+    const body = await clone.text().catch(() => "");
+    harRecorder.record({
+      method: init?.method ?? "GET",
+      url: typeof input === "string" ? input : input?.url ?? String(input),
+      status: response.status,
+      responseBody: body,
+      durationMs: Math.round(durationMs * 100) / 100
+    });
+    return response;
+  } : effectiveFetch;
   const sandbox = {
     // ── DOM ────────────────────────────────────────────────────────────
     document: env.document,
     // ── Console ────────────────────────────────────────────────────────
     console: win.console ?? createSandboxConsole(),
     // ── Timers ─────────────────────────────────────────────────────────
-    // Use real Node timers so that async React scheduling can flush
-    setTimeout: globalThis.setTimeout,
-    setInterval: globalThis.setInterval,
-    clearTimeout: globalThis.clearTimeout,
-    clearInterval: globalThis.clearInterval,
+    // Route through the environment's TimerController (real mode delegates
+    // to native Node timers, so async React scheduling still flushes) so
+    // that dispose() can clear every page-scheduled timer. Without this,
+    // page intervals keep the CLI process alive after the render finishes.
+    setTimeout: env.timers.setTimeout.bind(env.timers),
+    setInterval: env.timers.setInterval.bind(env.timers),
+    clearTimeout: env.timers.clearTimeout.bind(env.timers),
+    clearInterval: env.timers.clearInterval.bind(env.timers),
     // ── Animation frame ────────────────────────────────────────────────
     // React scheduler falls back to rAF when MessageChannel is unavailable
-    requestAnimationFrame: (callback) => globalThis.setTimeout(() => callback(Date.now()), 16),
-    cancelAnimationFrame: (id) => globalThis.clearTimeout(id),
+    requestAnimationFrame: (callback) => env.timers.requestAnimationFrame(callback),
+    cancelAnimationFrame: (id) => env.timers.cancelAnimationFrame(id),
     // ── Microtask ──────────────────────────────────────────────────────
     queueMicrotask: globalThis.queueMicrotask,
     // ── MessageChannel ─────────────────────────────────────────────────
@@ -9280,24 +9360,9 @@ function createVmContext(envOrOptions) {
     URL: globalThis.URL,
     URLSearchParams: globalThis.URLSearchParams,
     // ── Fetch & Networking ─────────────────────────────────────────────
-    // Use MockFetch so sandbox scripts cannot make real network calls
-    // and route registrations work correctly within the vm sandbox.
-    // If a harRecorder was provided, wrap fetch to record in-page network calls.
-    fetch: harRecorder ? async (input, init) => {
-      const start = performance.now();
-      const response = await mockFetch.fetch(input, init);
-      const durationMs = performance.now() - start;
-      const clone = response.clone();
-      const body = await clone.text().catch(() => "");
-      harRecorder.record({
-        method: init?.method ?? "GET",
-        url: typeof input === "string" ? input : input?.url ?? String(input),
-        status: response.status,
-        responseBody: body,
-        durationMs: Math.round(durationMs * 100) / 100
-      });
-      return response;
-    } : (input, init) => mockFetch.fetch(input, init),
+    // pageFetch = registered mock routes first, then LiveFetch (if enabled),
+    // wrapped with the HAR recorder when one was provided. See wiring above.
+    fetch: pageFetch,
     Headers: globalThis.Headers,
     Request: globalThis.Request,
     Response: globalThis.Response,
@@ -9374,9 +9439,6 @@ function createVmContext(envOrOptions) {
     // Third-party scripts (Google Sign-In, analytics) may reference XHR
     XMLHttpRequest: XMLHttpRequestShim
   };
-  if (liveFetch) {
-    sandbox.fetch = liveFetch.fetch.bind(liveFetch);
-  }
   sandbox.window = sandbox;
   sandbox.self = sandbox;
   sandbox.globalThis = sandbox;
@@ -9469,7 +9531,10 @@ function createVmContext(envOrOptions) {
     env,
     mockFetch,
     liveFetch,
-    _vmContext: context
+    _vmContext: context,
+    dispose: () => {
+      env.timers.dispose();
+    }
   };
 }
 var FileReaderShim, XMLHttpRequestShim;
@@ -10648,7 +10713,9 @@ async function renderUrl(url, options) {
       stableRounds: opts?.stableRounds ?? 3,
       waitForSelector: opts?.waitForSelector,
       mockFetch: ctx.mockFetch
-    })
+    }),
+    context: ctx,
+    dispose: () => ctx.dispose()
   };
   return result;
 }
@@ -10669,6 +10736,7 @@ async function execute(args) {
     });
     const pageContent = collectPage(result.document, result.meta, result.errors);
     const output = formatOutput(pageContent, args.format);
+    result.dispose();
     return { exitCode: 0, output, data: result };
   } catch (err) {
     return {

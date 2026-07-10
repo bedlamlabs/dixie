@@ -28,7 +28,8 @@ if (result.output !== undefined) {
   await writeStdout(formatOutput({ errors: result.errors }, args.format ?? 'json') + '\n');
 }
 
-// Immediate exit is deliberate: page scripts can leave live timers/intervals
-// (TimerController has no dispose yet) that would otherwise keep the process
-// alive until the parent's kill timeout. Output is fully flushed above.
+// Backstop exit: commands dispose their TimerController after collecting
+// results (clearing page-scheduled timers/intervals), but page scripts can
+// still hold the loop open through handles dispose can't reach (sockets,
+// MessageChannel ports, native fetch keep-alives). Output is fully flushed above.
 process.exit(result.exitCode ?? 0);

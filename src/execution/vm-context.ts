@@ -118,6 +118,12 @@ export interface VmContext {
   liveFetch?: LiveFetch;
   /** The raw vm.Context for module execution. */
   _vmContext?: import('node:vm').Context;
+  /**
+   * Tear down the context: disposes the environment's TimerController,
+   * clearing every live timer/interval/rAF the page scheduled so nothing
+   * keeps the Node.js event loop alive after rendering completes.
+   */
+  dispose: () => void;
 }
 
 function createSandboxConsole(): Console {
@@ -187,6 +193,46 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
   // Create a MockFetch instance for the vm sandbox — isolated from RenderContext's fetch
   const mockFetch = new MockFetch();
 
+  // ── In-page fetch wiring ─────────────────────────────────────────────
+  // Precedence: registered MockFetch routes/passthroughs win (they're an
+  // explicit instruction from the caller), then LiveFetch for real network
+  // access when enabled, else MockFetch's default/404 behaviour.
+  // The harRecorder wrapper goes around the FINAL fetch — historically the
+  // LiveFetch override was applied after the recorder wrapper, silently
+  // disabling HAR recording (and registered mock routes) whenever
+  // enableFetch was true (the default).
+  let effectiveFetch: (input: any, init?: any) => Promise<any>;
+  if (liveFetch) {
+    const live = liveFetch;
+    effectiveFetch = (input: any, init?: any) => {
+      const reqUrl = typeof input === 'string' ? input : input?.url ?? String(input);
+      return mockFetch.hasMatch(reqUrl)
+        ? mockFetch.fetch(input, init)
+        : live.fetch(input, init);
+    };
+  } else {
+    effectiveFetch = (input: any, init?: any) => mockFetch.fetch(input, init);
+  }
+
+  const pageFetch: (input: any, init?: any) => Promise<any> = harRecorder
+    ? async (input: any, init?: any) => {
+        const start = performance.now();
+        const response = await effectiveFetch(input, init);
+        const durationMs = performance.now() - start;
+        // Clone so the caller can still consume the body
+        const clone = response.clone();
+        const body = await clone.text().catch(() => '');
+        harRecorder!.record({
+          method: init?.method ?? 'GET',
+          url: typeof input === 'string' ? input : input?.url ?? String(input),
+          status: response.status,
+          responseBody: body,
+          durationMs: Math.round(durationMs * 100) / 100,
+        });
+        return response;
+      }
+    : effectiveFetch;
+
   /**
    * The sandbox IS the global scope for vm.runInContext.
    * Every global that React, Vite bundles, or React Router expect must be
@@ -202,18 +248,21 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     console: (win as any).console ?? createSandboxConsole(),
 
     // ── Timers ─────────────────────────────────────────────────────────
-    // Use real Node timers so that async React scheduling can flush
-    setTimeout: globalThis.setTimeout,
-    setInterval: globalThis.setInterval,
-    clearTimeout: globalThis.clearTimeout,
-    clearInterval: globalThis.clearInterval,
+    // Route through the environment's TimerController (real mode delegates
+    // to native Node timers, so async React scheduling still flushes) so
+    // that dispose() can clear every page-scheduled timer. Without this,
+    // page intervals keep the CLI process alive after the render finishes.
+    setTimeout: env.timers.setTimeout.bind(env.timers),
+    setInterval: env.timers.setInterval.bind(env.timers),
+    clearTimeout: env.timers.clearTimeout.bind(env.timers),
+    clearInterval: env.timers.clearInterval.bind(env.timers),
 
     // ── Animation frame ────────────────────────────────────────────────
     // React scheduler falls back to rAF when MessageChannel is unavailable
     requestAnimationFrame: (callback: (time: number) => void) =>
-      globalThis.setTimeout(() => callback(Date.now()), 16),
-    cancelAnimationFrame: (id: ReturnType<typeof globalThis.setTimeout>) =>
-      globalThis.clearTimeout(id),
+      env.timers.requestAnimationFrame(callback),
+    cancelAnimationFrame: (id: number) =>
+      env.timers.cancelAnimationFrame(id),
 
     // ── Microtask ──────────────────────────────────────────────────────
     queueMicrotask: globalThis.queueMicrotask,
@@ -242,27 +291,9 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     URLSearchParams: globalThis.URLSearchParams,
 
     // ── Fetch & Networking ─────────────────────────────────────────────
-    // Use MockFetch so sandbox scripts cannot make real network calls
-    // and route registrations work correctly within the vm sandbox.
-    // If a harRecorder was provided, wrap fetch to record in-page network calls.
-    fetch: harRecorder
-      ? async (input: any, init?: any) => {
-          const start = performance.now();
-          const response = await mockFetch.fetch(input, init);
-          const durationMs = performance.now() - start;
-          // Clone so the caller can still consume the body
-          const clone = response.clone();
-          const body = await clone.text().catch(() => '');
-          harRecorder!.record({
-            method: init?.method ?? 'GET',
-            url: typeof input === 'string' ? input : input?.url ?? String(input),
-            status: response.status,
-            responseBody: body,
-            durationMs: Math.round(durationMs * 100) / 100,
-          });
-          return response;
-        }
-      : (input: any, init?: any) => mockFetch.fetch(input, init),
+    // pageFetch = registered mock routes first, then LiveFetch (if enabled),
+    // wrapped with the HAR recorder when one was provided. See wiring above.
+    fetch: pageFetch,
     Headers: globalThis.Headers,
     Request: globalThis.Request,
     Response: globalThis.Response,
@@ -352,12 +383,6 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     XMLHttpRequest: XMLHttpRequestShim,
   };
 
-  // Wire LiveFetch into the VM so scripts can make real network requests
-  // (overrides MockFetch when LiveFetch is available)
-  if (liveFetch) {
-    sandbox.fetch = liveFetch.fetch.bind(liveFetch);
-  }
-
   // window === globalThis === self === sandbox (browser behaviour).
   // Intentional: browsers define window.window === window. This circular reference
   // is required for browser-compat code that accesses window.window or self.self.
@@ -434,5 +459,10 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     mockFetch,
     liveFetch,
     _vmContext: context,
+    dispose: () => {
+      // Clear every live page-scheduled timer/interval/rAF so the event loop
+      // (and the CLI process) is free to exit once rendering is done.
+      env.timers.dispose();
+    },
   };
 }
