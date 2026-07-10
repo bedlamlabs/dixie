@@ -146,6 +146,15 @@ export { collectExpectedCalls } from './collectors/expected-calls';
 export { collectErrors } from './collectors/errors';
 export { collectPage } from './collectors/page';
 export type { PageContent } from './collectors/page';
+export { collectStaticPage, collectRepeatedGroups } from './collectors/static-page';
+export type {
+  StaticPageResult,
+  StaticPageLink,
+  StaticPageButton,
+  StaticPageHeading,
+  CollectStaticPageOptions,
+  CollectRepeatedGroupsOptions,
+} from './collectors/static-page';
 
 // Queries
 export { getByTestId, getAllByTestId } from './queries/test-id';

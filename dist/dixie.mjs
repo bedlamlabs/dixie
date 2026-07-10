@@ -17439,6 +17439,123 @@ var init_errors = __esm({
   }
 });
 
+// src/collectors/static-page.ts
+function collapse(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+function closestMatch(el, ast) {
+  let current = el;
+  while (current && current.nodeType === ELEMENT_NODE2) {
+    if (matchesSelector(current, ast)) return true;
+    current = current.parentNode;
+  }
+  return false;
+}
+function collectStaticPage(doc, options = {}) {
+  const contextAst = options.contextFilter ? parseSelector(options.contextFilter) : null;
+  const links = [];
+  const buttons = [];
+  const headings = [];
+  const scripts = [];
+  const textParts = [];
+  const walk = (node, textExcluded) => {
+    const nodeType = node.nodeType;
+    if (nodeType === TEXT_NODE2) {
+      if (!textExcluded) textParts.push(node.data ?? node.textContent ?? "");
+      return;
+    }
+    let childExcluded = textExcluded;
+    if (nodeType === ELEMENT_NODE2) {
+      const tag = node.tagName;
+      if (tag === "A") {
+        if (node.getAttribute("href") !== null) {
+          const link = {
+            href: node.getAttribute("href") || "",
+            text: collapse(node.textContent || "")
+          };
+          const rel = collapse(node.getAttribute("rel") || "");
+          if (rel) link.rel = rel;
+          links.push(link);
+        }
+      } else if (tag === "SCRIPT") {
+        if (scripts.length < SCRIPT_CAP) {
+          const content = collapse(node.textContent || "");
+          if (content) scripts.push(content);
+        }
+      } else {
+        const level = HEADING_LEVELS[tag];
+        if (level) {
+          if (!contextAst || !closestMatch(node, contextAst)) {
+            headings.push({ text: collapse(node.textContent || ""), level });
+          }
+        }
+      }
+      if (tag === "BUTTON" || node.getAttribute("role") === "button" || node.getAttribute("role") === "link" || node.getAttribute("data-url") !== null || node.getAttribute("data-href") !== null) {
+        buttons.push({
+          href: node.getAttribute("href") || node.getAttribute("data-url") || node.getAttribute("data-href") || "",
+          text: collapse(node.textContent || node.getAttribute("aria-label") || node.getAttribute("title") || "")
+        });
+      }
+      if (!childExcluded && TEXT_SKIP_TAGS.has(tag)) childExcluded = true;
+    }
+    const children = node.childNodes;
+    if (children) {
+      for (let i = 0, len = children.length; i < len; i++) {
+        walk(children[i], childExcluded);
+      }
+    }
+  };
+  walk(doc, false);
+  return {
+    links,
+    buttons,
+    headings,
+    scripts,
+    // Concatenate raw text-node data first, then collapse — matches
+    // "collapse(document.text())" semantics across node boundaries.
+    textLength: collapse(textParts.join("")).length
+  };
+}
+function collectRepeatedGroups(doc, options) {
+  const { selectors, excludeContext, cap = 200, filter } = options;
+  const excludeAst = excludeContext ? parseSelector(excludeContext) : null;
+  const results = [];
+  for (const selector of selectors) {
+    const matched = doc.querySelectorAll(selector);
+    const kept = [];
+    for (const el of matched) {
+      if (filter && !filter(el)) continue;
+      if (excludeAst && closestMatch(el, excludeAst)) continue;
+      kept.push(el);
+      if (kept.length >= cap) break;
+    }
+    if (kept.length < 2) continue;
+    const groups = /* @__PURE__ */ new Map();
+    for (const el of kept) {
+      const key = el.parentNode || doc;
+      const group = groups.get(key);
+      if (group) group.push(el);
+      else groups.set(key, [el]);
+    }
+    for (const group of groups.values()) {
+      if (group.length >= 2) results.push(group);
+    }
+  }
+  return results;
+}
+var SCRIPT_CAP, TEXT_SKIP_TAGS, HEADING_LEVELS, ELEMENT_NODE2, TEXT_NODE2;
+var init_static_page = __esm({
+  "src/collectors/static-page.ts"() {
+    "use strict";
+    init_selectors();
+    SCRIPT_CAP = 80;
+    TEXT_SKIP_TAGS = /* @__PURE__ */ new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SVG"]);
+    HEADING_LEVELS = { H1: 1, H2: 2, H3: 3, H4: 4 };
+    ELEMENT_NODE2 = 1;
+    TEXT_NODE2 = 3;
+  }
+});
+
 // src/index.ts
 var src_exports = {};
 __export(src_exports, {
@@ -17512,6 +17629,8 @@ __export(src_exports, {
   collectForms: () => collectForms,
   collectLinks: () => collectLinks,
   collectPage: () => collectPage,
+  collectRepeatedGroups: () => collectRepeatedGroups,
+  collectStaticPage: () => collectStaticPage,
   collectStructure: () => collectStructure,
   collectText: () => collectText,
   createDixieEnvironment: () => createDixieEnvironment,
@@ -17638,6 +17757,7 @@ var init_src = __esm({
     init_expected_calls();
     init_errors();
     init_page();
+    init_static_page();
     init_test_id();
     init_role();
     init_label();
