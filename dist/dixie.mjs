@@ -623,6 +623,7 @@ var init_Node = __esm({
         }
         this._notifyMutation();
         triggerMutation("childList", this, { addedNodes: [child] });
+        child._onInserted?.();
         return child;
       }
       removeChild(child) {
@@ -678,6 +679,7 @@ var init_Node = __esm({
         }
         this._notifyMutation();
         triggerMutation("childList", this, { addedNodes: [newChild] });
+        newChild._onInserted?.();
         return newChild;
       }
       replaceChild(newChild, oldChild) {
@@ -2570,6 +2572,7 @@ var init_Element = __esm({
       _namespaceURI = null;
       _attributes;
       _classList = null;
+      _dataset = null;
       _style = null;
       _children_collection = null;
       /** Query cache — keyed by selector, validated against document mutation version. */
@@ -2733,6 +2736,45 @@ var init_Element = __esm({
           );
         }
         return this._classList;
+      }
+      // ── dataset ─────────────────────────────────────────────────────────
+      /**
+       * DOMStringMap over data-* attributes: `dataset.navState` <-> `data-nav-state`.
+       * React DOM and app code read it directly (e.g. `documentElement.dataset.theme`).
+       */
+      get dataset() {
+        if (!this._dataset) {
+          const el = this;
+          const toAttr = (prop) => "data-" + prop.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+          const toProp = (attr) => attr.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+          const dataAttrs = () => el._attributes._attrs.filter((a) => a.name.startsWith("data-"));
+          this._dataset = new Proxy({}, {
+            get(_t, prop) {
+              if (typeof prop !== "string") return void 0;
+              return el.getAttribute(toAttr(prop)) ?? void 0;
+            },
+            set(_t, prop, value) {
+              if (typeof prop !== "string") return false;
+              el.setAttribute(toAttr(prop), String(value));
+              return true;
+            },
+            deleteProperty(_t, prop) {
+              if (typeof prop === "string") el.removeAttribute(toAttr(prop));
+              return true;
+            },
+            has(_t, prop) {
+              return typeof prop === "string" && el.hasAttribute(toAttr(prop));
+            },
+            ownKeys() {
+              return dataAttrs().map((a) => toProp(a.name));
+            },
+            getOwnPropertyDescriptor(_t, prop) {
+              if (typeof prop !== "string" || !el.hasAttribute(toAttr(prop))) return void 0;
+              return { value: el.getAttribute(toAttr(prop)), writable: true, enumerable: true, configurable: true };
+            }
+          });
+        }
+        return this._dataset;
       }
       // ── style ──────────────────────────────────────────────────────────
       get style() {
@@ -3888,6 +3930,122 @@ var init_HTMLButtonElement = __esm({
   }
 });
 
+// src/nodes/HTMLLinkElement.ts
+var SUPPORTED_REL_TOKENS, LOADING_REL_TOKENS, HTMLLinkElement;
+var init_HTMLLinkElement = __esm({
+  "src/nodes/HTMLLinkElement.ts"() {
+    "use strict";
+    init_Element();
+    init_Event();
+    init_DOMTokenList();
+    SUPPORTED_REL_TOKENS = /* @__PURE__ */ new Set([
+      "alternate",
+      "dns-prefetch",
+      "icon",
+      "manifest",
+      "modulepreload",
+      "next",
+      "preconnect",
+      "prefetch",
+      "preload",
+      "prev",
+      "search",
+      "stylesheet"
+    ]);
+    LOADING_REL_TOKENS = /* @__PURE__ */ new Set(["stylesheet", "preload", "modulepreload"]);
+    HTMLLinkElement = class extends Element {
+      _relList = null;
+      _loadDispatched = false;
+      constructor() {
+        super("link");
+      }
+      get href() {
+        const raw = this.getAttribute("href");
+        if (raw === null) return "";
+        const base = this.ownerDocument?.defaultView?.location?.href;
+        try {
+          return new URL(raw, base).href;
+        } catch {
+          return raw;
+        }
+      }
+      set href(v) {
+        this.setAttribute("href", v);
+      }
+      get rel() {
+        return this.getAttribute("rel") ?? "";
+      }
+      set rel(v) {
+        this.setAttribute("rel", v);
+      }
+      get relList() {
+        if (!this._relList) {
+          const list = new DOMTokenList(
+            () => this.getAttribute("rel") ?? "",
+            (value) => this.setAttribute("rel", value)
+          );
+          list.supports = (token) => SUPPORTED_REL_TOKENS.has(String(token).toLowerCase());
+          this._relList = list;
+        }
+        return this._relList;
+      }
+      get as() {
+        return this.getAttribute("as") ?? "";
+      }
+      set as(v) {
+        this.setAttribute("as", v);
+      }
+      /** Reflects the crossorigin attribute; null when absent, as in browsers. */
+      get crossOrigin() {
+        const v = this.getAttribute("crossorigin");
+        if (v === null) return null;
+        return v.toLowerCase() === "use-credentials" ? "use-credentials" : "anonymous";
+      }
+      set crossOrigin(v) {
+        if (v === null) this.removeAttribute("crossorigin");
+        else this.setAttribute("crossorigin", v);
+      }
+      get integrity() {
+        return this.getAttribute("integrity") ?? "";
+      }
+      set integrity(v) {
+        this.setAttribute("integrity", v);
+      }
+      get referrerPolicy() {
+        return this.getAttribute("referrerpolicy") ?? "";
+      }
+      set referrerPolicy(v) {
+        this.setAttribute("referrerpolicy", v);
+      }
+      get media() {
+        return this.getAttribute("media") ?? "";
+      }
+      set media(v) {
+        this.setAttribute("media", v);
+      }
+      get type() {
+        return this.getAttribute("type") ?? "";
+      }
+      set type(v) {
+        this.setAttribute("type", v);
+      }
+      /** Called by Node after this element is inserted into a parent. */
+      _onInserted() {
+        if (this._loadDispatched || !this.isConnected || !this.hasAttribute("href")) return;
+        const loads = this.rel.toLowerCase().split(/\s+/).some((t) => LOADING_REL_TOKENS.has(t));
+        if (!loads) return;
+        this._loadDispatched = true;
+        setTimeout(() => {
+          const event = new Event("load");
+          this.dispatchEvent(event);
+          const handler = this.onload;
+          if (typeof handler === "function") handler.call(this, event);
+        }, 0);
+      }
+    };
+  }
+});
+
 // src/nodes/HTMLLabelElement.ts
 var HTMLLabelElement;
 var init_HTMLLabelElement = __esm({
@@ -3965,6 +4123,7 @@ var init_Document = __esm({
     init_HTMLFormElement();
     init_HTMLOptionElement();
     init_HTMLButtonElement();
+    init_HTMLLinkElement();
     init_HTMLLabelElement();
     init_TreeWalk();
     Document = class _Document extends Node {
@@ -4189,6 +4348,9 @@ var init_Document = __esm({
             break;
           case "label":
             el = new HTMLLabelElement();
+            break;
+          case "link":
+            el = new HTMLLinkElement();
             break;
           default:
             el = new Element(lower);
@@ -4546,7 +4708,7 @@ var init_Location = __esm({
         return this._url.href;
       }
       set href(value) {
-        this._url = new URL(value);
+        this._url = new URL(String(value), this._url);
       }
       // ── Derived read/write properties ──────────────────────────────────
       get protocol() {
@@ -6096,6 +6258,7 @@ var init_DixieEnvironment = __esm({
     init_HTMLTextAreaElement();
     init_HTMLSelectElement();
     init_HTMLButtonElement();
+    init_HTMLLinkElement();
     init_HTMLFormElement();
     init_HTMLLabelElement();
     init_HTMLOptionElement();
@@ -6149,7 +6312,8 @@ var init_DixieEnvironment = __esm({
       HTMLButtonElement,
       HTMLFormElement,
       HTMLLabelElement,
-      HTMLOptionElement
+      HTMLOptionElement,
+      HTMLLinkElement
     };
     HTML_CONSTRUCTORS_MAP = {};
     for (const [name, tag] of Object.entries(TAG_MAP)) {
@@ -6543,11 +6707,59 @@ var init_environment = __esm({
   }
 });
 
+// src/fetch/loopback.ts
+import { Agent } from "undici";
+function isLoopbackHostname(hostname) {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return host === "localhost" || host.endsWith(".localhost");
+}
+function loopbackLookup(_hostname, options, callback) {
+  const family = typeof options === "number" ? options : options?.family;
+  const candidates = family === 4 || family === 6 ? LOOPBACK_ADDRESSES.filter((a) => a.family === family) : LOOPBACK_ADDRESSES;
+  if (options?.all) {
+    callback(null, candidates);
+  } else {
+    callback(null, candidates[0].address, candidates[0].family);
+  }
+}
+function getLoopbackDispatcher() {
+  loopbackAgent ??= new Agent({
+    connect: { lookup: loopbackLookup, autoSelectFamily: true }
+  });
+  return loopbackAgent;
+}
+function requestHostname(input) {
+  try {
+    const raw = typeof input === "string" || input instanceof URL ? String(input) : input?.url;
+    return raw ? new URL(raw).hostname : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function dixieFetch(input, init) {
+  const hostname = requestHostname(input);
+  if (hostname && isLoopbackHostname(hostname) && !init?.dispatcher) {
+    return globalThis.fetch(input, { ...init, dispatcher: getLoopbackDispatcher() });
+  }
+  return globalThis.fetch(input, init);
+}
+var LOOPBACK_ADDRESSES, loopbackAgent;
+var init_loopback = __esm({
+  "src/fetch/loopback.ts"() {
+    "use strict";
+    LOOPBACK_ADDRESSES = [
+      { address: "127.0.0.1", family: 4 },
+      { address: "::1", family: 6 }
+    ];
+  }
+});
+
 // src/fetch/LiveFetch.ts
 var LiveFetch;
 var init_LiveFetch = __esm({
   "src/fetch/LiveFetch.ts"() {
     "use strict";
+    init_loopback();
     LiveFetch = class {
       _origin;
       _referer;
@@ -6570,9 +6782,14 @@ var init_LiveFetch = __esm({
       }
       // ── Core fetch ──────────────────────────────────────────────────────
       async fetch(input, init) {
-        const url = typeof input === "string" ? input : input.url;
-        const method = init?.method?.toUpperCase() ?? (typeof input === "string" ? "GET" : input.method ?? "GET");
-        const headers = new Headers(init?.headers ?? (typeof input !== "string" ? input.headers : void 0));
+        const isRequest = typeof input === "object" && input !== null && !(input instanceof URL) && "url" in input;
+        let url = isRequest ? input.url : String(input);
+        try {
+          url = new URL(url, this._referer || void 0).href;
+        } catch {
+        }
+        const method = init?.method?.toUpperCase() ?? (isRequest ? input.method ?? "GET" : "GET");
+        const headers = new Headers(init?.headers ?? (isRequest ? input.headers : void 0));
         if (!headers.has("User-Agent")) headers.set("User-Agent", this._userAgent);
         if (!headers.has("Origin") && this._origin) headers.set("Origin", this._origin);
         if (!headers.has("Referer") && this._referer) headers.set("Referer", this._referer);
@@ -6589,7 +6806,7 @@ var init_LiveFetch = __esm({
             timestamp: Date.now()
           });
         }
-        return globalThis.fetch(input, { ...init, headers });
+        return dixieFetch(isRequest ? input : url, { ...init, headers });
       }
       // ── Script fetching with cache ──────────────────────────────────────
       /**
@@ -7284,6 +7501,11 @@ function createVmContext(envOrOptions) {
     Response: globalThis.Response,
     AbortController: globalThis.AbortController,
     AbortSignal: globalThis.AbortSignal,
+    // Dixie's inert WebSocket/EventSource (same ones window exposes). Apps open
+    // sockets from effects and read WebSocket.OPEN; a missing global throws a
+    // ReferenceError that unmounts the whole React tree.
+    WebSocket: win.WebSocket,
+    EventSource: win.EventSource,
     // ── Encoding ───────────────────────────────────────────────────────
     TextEncoder: globalThis.TextEncoder,
     TextDecoder: globalThis.TextDecoder,
@@ -9865,10 +10087,10 @@ function isViteDevScript(src) {
 function isViteDevInlineScript(code) {
   return code.includes("/@react-refresh") || code.includes("__vite_plugin_react_preamble_installed__");
 }
-function stripViteHmr(code) {
+function stripViteHmr(code, moduleUrl) {
   code = code.replace(/import\.meta\.hot/g, "__vite_import_meta_hot__");
   code = code.replace(/import\.meta\.env/g, "__vite_import_meta_env__");
-  code = code.replace(/import\.meta\.url/g, '"about:blank"');
+  code = code.replace(/import\.meta\.url/g, JSON.stringify(moduleUrl ?? "about:blank"));
   code = code.replace(/import\.meta/g, "({})");
   return code;
 }
@@ -9961,17 +10183,17 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
             { filter: /.*/, namespace: "dixie-http" },
             async (args2) => {
               if (args2.path === entryUrl) {
-                return { contents: adapter ? adapter.transformSource(finalEntry) : stripViteHmr(finalEntry), loader: "js" };
+                return { contents: adapter ? adapter.transformSource(finalEntry, entryUrl) : stripViteHmr(finalEntry, entryUrl), loader: "js" };
               }
               if (Date.now() > deadline) {
                 throw new Error("Script bundling timed out");
               }
-              const response = await fetch(args2.path, { headers: fetchHeaders });
+              const response = await dixieFetch(args2.path, { headers: fetchHeaders });
               if (!response.ok) {
                 throw new Error(`HTTP ${response.status} fetching ${args2.path}`);
               }
               let contents = await response.text();
-              contents = adapter ? adapter.transformSource(contents) : stripViteHmr(contents);
+              contents = adapter ? adapter.transformSource(contents, args2.path) : stripViteHmr(contents, args2.path);
               return { contents, loader: "js" };
             }
           );
@@ -10033,7 +10255,7 @@ async function loadScripts(ctx, options, adapter) {
         const fetchTimer = setTimeout(() => controller.abort(), Math.min(remaining, 15e3));
         let code;
         try {
-          const response = await fetch(scriptUrl, {
+          const response = await dixieFetch(scriptUrl, {
             headers: fetchHeaders,
             signal: controller.signal
           });
@@ -10109,6 +10331,7 @@ var init_script_loader = __esm({
   "src/execution/script-loader.ts"() {
     "use strict";
     init_module_loader();
+    init_loopback();
     EXECUTABLE_TYPES = /* @__PURE__ */ new Set([
       "",
       // no type attribute = JavaScript
@@ -13519,12 +13742,12 @@ async function renderUrl(url, options) {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(fetchUrl, { headers });
+      const response = await dixieFetch(fetchUrl, { headers });
       if (ssrActive && !response.ok) {
         if (spaConfig?.fallback === "error") {
           throw new Error(`SSR endpoint returned ${response.status}: ${response.statusText}`);
         }
-        const fallbackResponse = await fetch(url, { headers });
+        const fallbackResponse = await dixieFetch(url, { headers });
         html = await fallbackResponse.text();
         ssrActive = false;
       } else {
@@ -13552,7 +13775,7 @@ async function renderUrl(url, options) {
         if (token && !headers["Authorization"] && !headers["authorization"]) {
           headers["Authorization"] = `Bearer ${token}`;
         }
-        const response = await globalThis.fetch(fullUrl, { ...init, headers });
+        const response = await dixieFetch(fullUrl, { ...init, headers });
         const body = await response.text();
         const { DixieResponse: DixieResponse2 } = await Promise.resolve().then(() => (init_Response(), Response_exports));
         const responseHeaders = {};
@@ -13711,6 +13934,7 @@ var init_render = __esm({
     init_page();
     init_Navigator();
     init_events();
+    init_loopback();
   }
 });
 
@@ -13889,6 +14113,23 @@ var query_exports = {};
 __export(query_exports, {
   execute: () => execute2
 });
+function isNonTextElement(el) {
+  return NON_TEXT_TAGS.has(el?.tagName?.toLowerCase?.() ?? "");
+}
+function isInsideNonTextElement(el) {
+  for (let node = el; node; node = node.parentNode) {
+    if (isNonTextElement(node)) return true;
+  }
+  return false;
+}
+function visibleText(el) {
+  let out = "";
+  for (const child of Array.from(el.childNodes ?? [])) {
+    if (child.nodeType === 3) out += child.textContent ?? "";
+    else if (child.nodeType === 1 && !isNonTextElement(child)) out += visibleText(child);
+  }
+  return out;
+}
 async function execute2(args2) {
   if (!args2.url) {
     return {
@@ -13929,14 +14170,12 @@ async function execute2(args2) {
     }
     if (textSearch !== void 0) {
       const needle = textSearch.toLowerCase();
-      const all = Array.from(doc.querySelectorAll("*"));
-      const matches = all.filter((el) => {
-        const text = (el.textContent ?? "").toLowerCase();
-        return text.includes(needle);
-      });
+      const all = Array.from(doc.querySelectorAll("*")).filter((el) => !isInsideNonTextElement(el));
+      const texts = new Map(all.map((el) => [el, visibleText(el)]));
+      const matches = all.filter((el) => texts.get(el).toLowerCase().includes(needle));
       const results2 = matches.map((el) => ({
         tagName: el.tagName?.toLowerCase() ?? "unknown",
-        text: (el.textContent ?? "").trim().slice(0, 200),
+        text: texts.get(el).trim().slice(0, 200),
         id: el.getAttribute?.("id") ?? void 0
       }));
       const textData = {
@@ -13994,6 +14233,7 @@ async function execute2(args2) {
     };
   }
 }
+var NON_TEXT_TAGS;
 var init_query = __esm({
   "src/cli/commands/query.ts"() {
     "use strict";
@@ -14003,6 +14243,7 @@ var init_query = __esm({
     init_role();
     init_label();
     init_click();
+    NON_TEXT_TAGS = /* @__PURE__ */ new Set(["script", "style", "noscript", "template"]);
   }
 });
 

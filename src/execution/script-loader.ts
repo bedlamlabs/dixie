@@ -18,6 +18,7 @@
 
 import type { VmContext } from './vm-context';
 import { isModuleLoaderAvailable, executeModule } from './module-loader';
+import { dixieFetch } from '../fetch/loopback';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -64,7 +65,8 @@ export type ScriptError = { code: string; message: string };
 
 export interface DevServerAdapter {
   matches(src: string): boolean;
-  transformSource(code: string): string;
+  /** moduleUrl is the URL the module was loaded from (its import.meta.url). */
+  transformSource(code: string, moduleUrl?: string): string;
   skipPatterns(): RegExp[];
   bannerCode(): string;
   transformBundle(code: string): string;
@@ -80,17 +82,8 @@ export class ViteDevServerAdapter implements DevServerAdapter {
     return /^\/@vite\//.test(src) || /^\/@react-refresh/.test(src);
   }
 
-  transformSource(code: string): string {
-    // Replace import.meta.hot with a banner-defined stub variable.
-    // This handles ALL patterns: assignments, method calls, and conditionals.
-    code = code.replace(/import\.meta\.hot/g, '__vite_import_meta_hot__');
-    // Replace import.meta.env with the banner-defined env object
-    code = code.replace(/import\.meta\.env/g, '__vite_import_meta_env__');
-    // Replace import.meta.url with a placeholder string
-    code = code.replace(/import\.meta\.url/g, '"about:blank"');
-    // Catch any remaining import.meta references
-    code = code.replace(/import\.meta/g, '({})');
-    return code;
+  transformSource(code: string, moduleUrl?: string): string {
+    return stripViteHmr(code, moduleUrl);
   }
 
   skipPatterns(): RegExp[] {
@@ -160,14 +153,16 @@ function isViteDevInlineScript(code: string): boolean {
  * and HMR accept/refresh calls at the bottom. These reference import.meta
  * which doesn't work in IIFE format. Strip them before esbuild bundles.
  */
-function stripViteHmr(code: string): string {
+function stripViteHmr(code: string, moduleUrl?: string): string {
   // Replace import.meta.hot with a banner-defined stub variable.
   // This handles ALL patterns: assignments, method calls, and conditionals.
   code = code.replace(/import\.meta\.hot/g, '__vite_import_meta_hot__');
   // Replace import.meta.env with the banner-defined env object
   code = code.replace(/import\.meta\.env/g, '__vite_import_meta_env__');
-  // Replace import.meta.url with a placeholder string
-  code = code.replace(/import\.meta\.url/g, '"about:blank"');
+  // import.meta.url is the module's own URL. Vite's preload helper resolves
+  // chunk paths with new URL(dep, import.meta.url); a placeholder like
+  // about:blank makes that throw "Invalid URL" and no lazy route ever loads.
+  code = code.replace(/import\.meta\.url/g, JSON.stringify(moduleUrl ?? 'about:blank'));
   // Catch any remaining import.meta references
   code = code.replace(/import\.meta/g, '({})');
   return code;
@@ -311,18 +306,18 @@ var __vite_import_meta_env__ = {DEV:false,PROD:true,MODE:"production",BASE_URL:"
             async (args) => {
               // Return cached entry content for the entry URL
               if (args.path === entryUrl) {
-                return { contents: adapter ? adapter.transformSource(finalEntry) : stripViteHmr(finalEntry), loader: 'js' };
+                return { contents: adapter ? adapter.transformSource(finalEntry, entryUrl) : stripViteHmr(finalEntry, entryUrl), loader: 'js' };
               }
               if (Date.now() > deadline) {
                 throw new Error('Script bundling timed out');
               }
-              const response = await fetch(args.path, { headers: fetchHeaders });
+              const response = await dixieFetch(args.path, { headers: fetchHeaders });
               if (!response.ok) {
                 throw new Error(`HTTP ${response.status} fetching ${args.path}`);
               }
               let contents = await response.text();
               // Strip Vite dev server HMR wrappers from each module
-              contents = adapter ? adapter.transformSource(contents) : stripViteHmr(contents);
+              contents = adapter ? adapter.transformSource(contents, args.path) : stripViteHmr(contents, args.path);
               return { contents, loader: 'js' };
             },
           );
@@ -445,7 +440,7 @@ export async function loadScripts(
 
         let code: string;
         try {
-          const response = await fetch(scriptUrl, {
+          const response = await dixieFetch(scriptUrl, {
             headers: fetchHeaders,
             signal: controller.signal,
           });

@@ -299,6 +299,11 @@ export function createVmContext(envOrOptions?: DixieEnvironment | VmContextOptio
     Response: globalThis.Response,
     AbortController: globalThis.AbortController,
     AbortSignal: globalThis.AbortSignal,
+    // Dixie's inert WebSocket/EventSource (same ones window exposes). Apps open
+    // sockets from effects and read WebSocket.OPEN; a missing global throws a
+    // ReferenceError that unmounts the whole React tree.
+    WebSocket: (win as any).WebSocket,
+    EventSource: (win as any).EventSource,
 
     // ── Encoding ───────────────────────────────────────────────────────
     TextEncoder: globalThis.TextEncoder,
