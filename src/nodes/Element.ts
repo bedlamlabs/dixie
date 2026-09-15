@@ -37,6 +37,7 @@ export class Element extends Node {
 
   private _attributes: NamedNodeMap;
   private _classList: DOMTokenList | null = null;
+  private _dataset: Record<string, string> | null = null;
   private _style: CSSStyleDeclaration | null = null;
   private _children_collection: HTMLCollection | null = null;
 
@@ -226,6 +227,47 @@ export class Element extends Node {
       );
     }
     return this._classList;
+  }
+
+  // ── dataset ─────────────────────────────────────────────────────────
+
+  /**
+   * DOMStringMap over data-* attributes: `dataset.navState` <-> `data-nav-state`.
+   * React DOM and app code read it directly (e.g. `documentElement.dataset.theme`).
+   */
+  get dataset(): Record<string, string> {
+    if (!this._dataset) {
+      const el = this;
+      const toAttr = (prop: string) => 'data-' + prop.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+      const toProp = (attr: string) => attr.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      const dataAttrs = () => el._attributes._attrs.filter((a: Attr) => a.name.startsWith('data-'));
+      this._dataset = new Proxy({} as Record<string, string>, {
+        get(_t, prop) {
+          if (typeof prop !== 'string') return undefined;
+          return el.getAttribute(toAttr(prop)) ?? undefined;
+        },
+        set(_t, prop, value) {
+          if (typeof prop !== 'string') return false;
+          el.setAttribute(toAttr(prop), String(value));
+          return true;
+        },
+        deleteProperty(_t, prop) {
+          if (typeof prop === 'string') el.removeAttribute(toAttr(prop));
+          return true;
+        },
+        has(_t, prop) {
+          return typeof prop === 'string' && el.hasAttribute(toAttr(prop));
+        },
+        ownKeys() {
+          return dataAttrs().map((a: Attr) => toProp(a.name));
+        },
+        getOwnPropertyDescriptor(_t, prop) {
+          if (typeof prop !== 'string' || !el.hasAttribute(toAttr(prop))) return undefined;
+          return { value: el.getAttribute(toAttr(prop)), writable: true, enumerable: true, configurable: true };
+        },
+      });
+    }
+    return this._dataset;
   }
 
   // ── style ──────────────────────────────────────────────────────────

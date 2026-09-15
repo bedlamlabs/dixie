@@ -7,6 +7,7 @@ import { formatOutput } from '../format';
 import { collectPage } from '../../collectors/page';
 import { DEFAULT_USER_AGENT } from '../../browser/Navigator';
 import { Event } from '../../events';
+import { dixieFetch } from '../../fetch/loopback';
 import type { HarRecorder } from '../../har/recorder';
 import * as path from 'node:path';
 
@@ -161,7 +162,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      const response = await fetch(fetchUrl, { headers });
+      const response = await dixieFetch(fetchUrl, { headers });
 
       // SSR fallback: if SSR endpoint fails, retry with original URL
       if (ssrActive && !response.ok) {
@@ -169,7 +170,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
           throw new Error(`SSR endpoint returned ${response.status}: ${response.statusText}`);
         }
         // fallback: 'shell' (default) — fetch the original URL
-        const fallbackResponse = await fetch(url, { headers });
+        const fallbackResponse = await dixieFetch(url, { headers });
         html = await fallbackResponse.text();
         ssrActive = false;
       } else {
@@ -207,7 +208,7 @@ export async function renderUrl(url: string, options?: RenderOptions): Promise<R
         if (token && !headers['Authorization'] && !headers['authorization']) {
           headers['Authorization'] = `Bearer ${token}`;
         }
-        const response = await globalThis.fetch(fullUrl, { ...init, headers });
+        const response = await dixieFetch(fullUrl, { ...init, headers });
         const body = await response.text();
         // Import DixieResponse to return the correct type for MockFetch
         const { DixieResponse } = await import('../../fetch/Response');

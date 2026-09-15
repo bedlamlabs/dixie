@@ -222,6 +222,7 @@ export class Node extends EventTarget {
 
     this._notifyMutation();
     triggerMutation('childList', this, { addedNodes: [child] });
+    (child as any)._onInserted?.();
 
     return child;
   }
@@ -304,6 +305,7 @@ export class Node extends EventTarget {
 
     this._notifyMutation();
     triggerMutation('childList', this, { addedNodes: [newChild] });
+    (newChild as any)._onInserted?.();
 
     return newChild;
   }

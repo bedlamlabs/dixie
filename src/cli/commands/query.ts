@@ -6,6 +6,29 @@ import { getByRole, getAllByRole } from '../../queries/role';
 import { getByLabel, getAllByLabel } from '../../queries/label';
 import { click } from '../../interaction/click';
 
+const NON_TEXT_TAGS = new Set(['script', 'style', 'noscript', 'template']);
+
+function isNonTextElement(el: any): boolean {
+  return NON_TEXT_TAGS.has(el?.tagName?.toLowerCase?.() ?? '');
+}
+
+function isInsideNonTextElement(el: any): boolean {
+  for (let node = el; node; node = node.parentNode) {
+    if (isNonTextElement(node)) return true;
+  }
+  return false;
+}
+
+/** textContent minus the contents of script/style/noscript/template. */
+function visibleText(el: any): string {
+  let out = '';
+  for (const child of Array.from(el.childNodes ?? []) as any[]) {
+    if (child.nodeType === 3) out += child.textContent ?? '';
+    else if (child.nodeType === 1 && !isNonTextElement(child)) out += visibleText(child);
+  }
+  return out;
+}
+
 export async function execute(args: ParsedArgs): Promise<CommandResult> {
   if (!args.url) {
     return {
@@ -51,17 +74,18 @@ export async function execute(args: ParsedArgs): Promise<CommandResult> {
       }
     }
 
-    // ── Text search: find elements whose textContent contains the string ──
+    // ── Text search: find elements whose rendered text contains the string ──
+    // Script/style/template source is not page text. Without this, an inline
+    // JSON blob in <head> made query report "found" on an empty page.
     if (textSearch !== undefined) {
       const needle = textSearch.toLowerCase();
-      const all = Array.from(doc.querySelectorAll('*'));
-      const matches = (all as any[]).filter((el: any) => {
-        const text = (el.textContent ?? '').toLowerCase();
-        return text.includes(needle);
-      });
+      const all = (Array.from(doc.querySelectorAll('*')) as any[])
+        .filter((el: any) => !isInsideNonTextElement(el));
+      const texts = new Map<any, string>(all.map((el: any) => [el, visibleText(el)]));
+      const matches = all.filter((el: any) => texts.get(el)!.toLowerCase().includes(needle));
       const results = matches.map((el: any) => ({
         tagName: el.tagName?.toLowerCase() ?? 'unknown',
-        text: (el.textContent ?? '').trim().slice(0, 200),
+        text: texts.get(el)!.trim().slice(0, 200),
         id: el.getAttribute?.('id') ?? undefined,
       }));
       const textData = {

@@ -12,6 +12,7 @@ import { HTMLTextAreaElement } from './HTMLTextAreaElement';
 import { HTMLFormElement } from './HTMLFormElement';
 import { HTMLOptionElement } from './HTMLOptionElement';
 import { HTMLButtonElement } from './HTMLButtonElement';
+import { HTMLLinkElement } from './HTMLLinkElement';
 import { HTMLLabelElement } from './HTMLLabelElement';
 
 /**
@@ -241,6 +242,9 @@ export class Document extends Node {
         break;
       case 'label':
         el = new HTMLLabelElement();
+        break;
+      case 'link':
+        el = new HTMLLinkElement();
         break;
       default:
         el = new Element(lower);

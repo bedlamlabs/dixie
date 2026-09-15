@@ -11,6 +11,7 @@
  */
 
 import type { RecordedRequest } from './MockFetch';
+import { dixieFetch } from './loopback';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -49,12 +50,21 @@ export class LiveFetch {
 
   // ── Core fetch ──────────────────────────────────────────────────────
 
-  async fetch(input: string | Request, init?: RequestInit): Promise<Response> {
-    const url = typeof input === 'string' ? input : input.url;
-    const method = init?.method?.toUpperCase() ?? (typeof input === 'string' ? 'GET' : input.method ?? 'GET');
+  async fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+    // RequestInfo may be a string, a URL object, or a Request. Vite's
+    // modulepreload polyfill passes link.href; other code passes URL objects.
+    const isRequest = typeof input === 'object' && input !== null && !(input instanceof URL) && 'url' in input;
+    // Relative URLs resolve against the page, as in a browser.
+    let url = isRequest ? (input as Request).url : String(input);
+    try {
+      url = new URL(url, this._referer || undefined).href;
+    } catch {
+      // Leave unparseable input as-is; fetch reports the error.
+    }
+    const method = init?.method?.toUpperCase() ?? (isRequest ? (input as Request).method ?? 'GET' : 'GET');
 
     // Build headers — inject UA/Origin/Referer without clobbering caller's headers
-    const headers = new Headers(init?.headers ?? (typeof input !== 'string' ? input.headers : undefined));
+    const headers = new Headers(init?.headers ?? (isRequest ? (input as Request).headers : undefined));
     if (!headers.has('User-Agent')) headers.set('User-Agent', this._userAgent);
     if (!headers.has('Origin') && this._origin) headers.set('Origin', this._origin);
     if (!headers.has('Referer') && this._referer) headers.set('Referer', this._referer);
@@ -72,8 +82,8 @@ export class LiveFetch {
       });
     }
 
-    // Delegate to native fetch
-    return globalThis.fetch(input, { ...init, headers });
+    // Delegate to native fetch (loopback hosts resolve without DNS, as in browsers)
+    return dixieFetch(isRequest ? input : url, { ...init, headers });
   }
 
   // ── Script fetching with cache ──────────────────────────────────────

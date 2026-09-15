@@ -43,6 +43,7 @@ import { HTMLInputElement } from '../nodes/HTMLInputElement';
 import { HTMLTextAreaElement } from '../nodes/HTMLTextAreaElement';
 import { HTMLSelectElement } from '../nodes/HTMLSelectElement';
 import { HTMLButtonElement } from '../nodes/HTMLButtonElement';
+import { HTMLLinkElement } from '../nodes/HTMLLinkElement';
 import { HTMLFormElement } from '../nodes/HTMLFormElement';
 import { HTMLLabelElement } from '../nodes/HTMLLabelElement';
 import { HTMLOptionElement } from '../nodes/HTMLOptionElement';
@@ -104,7 +105,7 @@ const HTML_ELEMENT_NAMES = Object.keys(TAG_MAP) as (keyof typeof TAG_MAP)[];
 // Real element classes that have prototype getter/setters (e.g. .checked, .value)
 const REAL_ELEMENT_CLASSES: Record<string, any> = {
   HTMLInputElement, HTMLTextAreaElement, HTMLSelectElement,
-  HTMLButtonElement, HTMLFormElement, HTMLLabelElement, HTMLOptionElement,
+  HTMLButtonElement, HTMLFormElement, HTMLLabelElement, HTMLOptionElement, HTMLLinkElement,
 };
 
 /** Create a dummy constructor with Symbol.hasInstance for tag-based instanceof. */

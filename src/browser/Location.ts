@@ -20,7 +20,9 @@ export class Location {
   }
 
   set href(value: string) {
-    this._url = new URL(value);
+    // Relative values ("/login", "?tab=x") resolve against the current URL,
+    // as in browsers. SPAs redirect with location.replace('/login').
+    this._url = new URL(String(value), this._url);
   }
 
   // ── Derived read/write properties ──────────────────────────────────
